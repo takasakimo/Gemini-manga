@@ -1,0 +1,42 @@
+# project.yaml の art_taste / design_structure / genre / usage をプロンプト用の英語指示に変換
+# UI で選択した内容が画像生成に確実に反映されるようにする
+
+usage:
+  webtoon: "Webtoon format: Vertical scroll optimized, mobile-first, cinematic vertical layout."
+  standard_manga: "Standard manga page format: Traditional Japanese manga panel style."
+  four_panel: "4-koma manga style: Four-panel comic rhythm, punchline-friendly composition."
+  youtube: "YouTube kamishibai/thumbnail style: Horizontal, text overlay friendly, catchy layout."
+  single: "Single illustration: One impactful image, minimal layout elements."
+
+art_taste:
+  standard: "Shounen manga style, clean solid ink lines, professional manga quality."
+  chibi: "CRITICAL - DRAW ALL CHARACTERS IN CHIBI STYLE: Cute rounded chibi characters, big head (about 1:1 with body), small rounded body (2-3 heads tall total), pastel soft colors, kawaii cute expression. Must look like chibi/SD (super deformed) anime style."
+  shoujo: "Shoujo manga style, sparkly decorative elements, glamorous aesthetic, large expressive eyes, flowing hair, romantic atmosphere."
+  seinen: "Seinen manga style, realistic proportions, detailed screentone shading, mature sophisticated look."
+  comedy: "Gag/comedy manga style, exaggerated expressions, pop art, deformable characters, humorous feel."
+  horror: "Horror/suspense manga style, dark shadows, dramatic lighting, tense atmosphere, high contrast."
+
+design_structure:
+  standard: "CRITICAL - Draw as a single manga panel: Visible black panel border/frame around the entire image. Speech bubbles for dialogue. Character and background inside the panel. Traditional Japanese manga panel layout like in manga magazines."
+  webtoon: "Webtoon vertical scroll style, cinematic widescreen panel, movie-like composition."
+  four_panel: "4-koma manga format: draw as one panel that suggests 4-panel comic rhythm (起承転結). Or single panel with 4-panel manga aesthetic."
+  large_panel: "Large impactful panel, spread-style composition, dynamic powerful layout."
+  essay: "Essay manga style, more whitespace, text-friendly layout, approachable composition."
+  youtube: "YouTube kamishibai style, horizontal layout, text overlay friendly, thumbnail-optimized."
+  single_illust: "Single illustration focus, minimal text, maximum visual impact."
+  cover: "Manga cover/poster style, large title space, character as main focus, eye-grabbing layout."
+  auto: "Optimize panel composition based on content. Clear manga panel framing."
+
+genre:
+  none: ""
+  beauty: "Beauty/cosmetics aesthetic: translucent, refined, feminine, soft tones."
+  health: "Health/diet aesthetic: refreshing, energetic, clean feeling."
+  romance: "Romance aesthetic: emotional, warm, pink-ish tones."
+  family: "Family aesthetic: gentle, soft, familiar, warm."
+  spiritual: "Spiritual aesthetic: mystical, cosmic, purple and gold tones."
+  money: "Money/investment aesthetic: intellectual, trustworthy, many diagram-style elements."
+  business: "Business/self-help aesthetic: stylish, persuasive, sharp."
+  entertainment: "Entertainment/games aesthetic: pop, flashy, strong contrast."
+  cooking: "Cooking/gourmet aesthetic: sizzle, warmth, appetite-stimulating."
+  travel: "Travel/vlog aesthetic: emotional, scenic beauty, cinematic."
+  tech: "Tech/gadget aesthetic: futuristic, cool, sleek."

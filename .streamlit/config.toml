@@ -1,0 +1,9 @@
+# Streamlit 設定（デプロイ・ローカル共通）
+[server]
+headless = true
+port = 8501
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false

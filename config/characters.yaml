@@ -1,0 +1,78 @@
+series:
+  title: サンプル漫画
+  art_style: 'Japanese manga style, like professional manga generation app output:
+
+    - Clean, crisp black ink line art, consistent line weight
+
+    - Screentone (halftone) shading for shadows and depth
+
+    - Gray scale tones (black, grays, white), no flat color unless specified
+
+    - Single manga panel composition, publication-ready quality
+
+    - Clear speech bubbles with readable Japanese text when dialogue is given
+
+    - Anime/manga character design, expressive faces, proper proportions
+
+    '
+  style_negative: 'Avoid: photorealistic, 3D render, changing line style between panels,
+
+    inconsistent shading, different color palette, Western comic style,
+
+    blurry text, messy line work
+
+    '
+characters:
+- id: sakura
+  name: 桜子
+  name_en: Sakura
+  description: 'Sakura is a 16-year-old Japanese high school girl with:
+
+    - Hair: Pinkish-brown short hair with straight bangs, cherry blossom hair clip
+    on left
+
+    - Eyes: Large green eyes with long eyelashes
+
+    - Build: Petite 155cm, slim figure
+
+    - Clothing: White sailor uniform with blue ribbon, black loafers
+
+    - Distinguishing: Small mole on right cheek, bright energetic expression
+
+    '
+  personality_hints: Typically shows bright smile, energetic
+  voice_style: ですます調、明るい口調
+- id: yuuto
+  name: 悠人
+  name_en: Yuuto
+  description: 'Yuuto is a 17-year-old Japanese high school boy with:
+
+    - Hair: Black messy hair, natural style
+
+    - Eyes: Dark brown eyes, calm expression
+
+    - Build: Average 172cm, athletic build
+
+    - Clothing: Dark blue blazer uniform, white shirt
+
+    - Distinguishing: Slight squint when thinking, always wears wristwatch on left
+
+    '
+  personality_hints: Calm, observant
+  voice_style: タメ口、落ち着いた口調
+- id: aims
+  name: ノブおじ
+  name_en: nobuoji
+  description: 'nobuoji is a 38 year old male with:
+
+    - Hair: Black medium natural style hair
+
+    - Eyes: Dark brown eyes with calm expression
+
+    - Build: Average build, 172cm
+
+    - Clothing: ネイビーの３ピーススーツ
+
+    - Distinguishing: パーマヘアー'
+  personality_hints: Calm expression
+  voice_style: タメ口

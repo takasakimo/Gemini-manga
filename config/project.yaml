@@ -1,0 +1,22 @@
+project:
+  title: サンプル漫画
+  total_panels: 1
+  aspect_ratio: '9:16'
+  canvas_ratio: '9:16'
+  genre: tech
+  design_structure: standard
+  art_taste: chibi
+panels:
+- number: 1
+  characters:
+  - aims
+  dialogue:
+  - character: aims
+    text: 今ならこの漫画作成ソフトが無料です！！
+  - character: aims
+    text: 早く申し込みしないと先着順で打ち切ります！
+  title: 新時代の幕開けだ！
+  text: 今ならこの漫画作成ソフトが無料です！！
+  scene: デスクで仕事をしている
+  action: 右手にスマホを掲げて叫んでいる様子
+  shot: 桜子の全身が入る。手を挙げている。

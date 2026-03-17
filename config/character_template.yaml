@@ -1,0 +1,102 @@
+# キャラクター作成テンプレート
+# 各項目を埋めるだけで一貫性のあるキャラクター設定が完成します
+# 必須項目以外は省略可能（デフォルト値で補完）
+
+# description を自動生成するテンプレート文
+# {項目名} が入力値に置換されます
+description_template: |
+  {name_en} is a {age} year old {gender} with:
+  - Hair: {hair_color} {hair_length} {hair_style} hair{hair_accessory}
+  - Eyes: {eye_color} eyes with {eye_detail}
+  - Build: {build} build, {height}
+  - Clothing: {clothing}
+  - Distinguishing: {distinguishing}
+
+# 各項目の定義（ラベル・プレースホルダー・デフォルト）
+fields:
+  - id: id
+    label: "ID（英数字・プロンプト用）"
+    placeholder: "例: sakura, yuuto"
+    required: true
+
+  - id: name
+    label: "名前（日本語）"
+    placeholder: "例: 桜子"
+    required: true
+
+  - id: name_en
+    label: "名前（英語・プロンプト用）"
+    placeholder: "例: Sakura"
+    required: true
+
+  - id: age
+    label: "年齢"
+    placeholder: "例: 16"
+    default: "16"
+
+  - id: gender
+    label: "性別"
+    options: ["female", "male"]
+    labels: ["女性", "男性"]
+    default: "female"
+
+  - id: hair_color
+    label: "髪の色"
+    placeholder: "例: Pinkish-brown, Black, Blonde"
+    default: "Black"
+
+  - id: hair_length
+    label: "髪の長さ"
+    options: ["short", "medium", "long"]
+    labels: ["ショート", "ミディアム", "ロング"]
+    default: "short"
+
+  - id: hair_style
+    label: "髪型・特徴"
+    placeholder: "例: straight bangs, messy natural style"
+    default: "natural style"
+
+  - id: hair_accessory
+    label: "髪のアクセサリー（任意）"
+    placeholder: "例: , cherry blossom hair clip on left"
+    default: ""
+
+  - id: eye_color
+    label: "目の色"
+    placeholder: "例: Large green, Dark brown"
+    default: "Dark brown"
+
+  - id: eye_detail
+    label: "目の特徴"
+    placeholder: "例: long eyelashes, calm expression"
+    default: "calm expression"
+
+  - id: build
+    label: "体型"
+    placeholder: "例: Petite, Average, Athletic"
+    default: "Average"
+
+  - id: height
+    label: "身長"
+    placeholder: "例: 155cm, 172cm"
+    default: "165cm"
+
+  - id: clothing
+    label: "服装"
+    placeholder: "例: White sailor uniform with blue ribbon, black loafers"
+    default: "casual clothes"
+
+  - id: distinguishing
+    label: "区別できる特徴（ほくろ・アクセサリー等）"
+    placeholder: "例: Small mole on right cheek, always wears wristwatch on left"
+    default: ""
+
+  - id: personality_hints
+    label: "性格・表情の傾向"
+    placeholder: "例: Typically shows bright smile, energetic"
+    default: "Calm expression"
+
+  - id: voice_style
+    label: "セリフの口調"
+    placeholder: "例: ですます調、明るい口調"
+    default: "タメ口"
