@@ -74,13 +74,6 @@ def build_description_from_template(template_str: str, values: dict) -> str:
     return result.strip()
 
 
-def get_output_images():
-    """output/ フォルダ内の PNG 画像一覧を取得（panel_001.png など）"""
-    if not OUTPUT_DIR.exists():
-        return []
-    return sorted(OUTPUT_DIR.glob("panel_*.png"), key=lambda p: p.name)
-
-
 def load_project():
     """config/project.yaml からプロジェクト設定を読み込む"""
     path = CONFIG_DIR / "project.yaml"
@@ -134,6 +127,56 @@ def render_gallery_section(key_prefix: str = "gallery"):
                 )
             except Exception as e:
                 st.error(f"読み込みエラー: {e}")
+
+    # コマ割りセクション
+    st.divider()
+    st.subheader("📐 コマ割り")
+    st.caption("複数のコマを1枚の漫画ページにまとめます。")
+    layout_opts = [
+        ("vertical", "縦並び（Webtoon風）"),
+        ("horizontal", "横並び"),
+        ("2x2", "2×2（4コマ）"),
+        ("grid", "グリッド（2列）"),
+    ]
+    layout_key = st.selectbox(
+        "レイアウト",
+        range(len(layout_opts)),
+        format_func=lambda i: layout_opts[i][1],
+        key=f"{key_prefix}_layout",
+    )
+    layout = layout_opts[layout_key][0]
+    if st.button("📐 コマ割りで1枚にまとめる", key=f"{key_prefix}_compose"):
+        try:
+            from src.panel_composer import get_panel_paths, compose_panels
+        except ImportError:
+            from panel_composer import get_panel_paths, compose_panels
+        panel_paths = get_panel_paths(OUTPUT_DIR)
+        if panel_paths:
+            out_path = compose_panels(panel_paths, layout=layout, output_path=OUTPUT_DIR / "manga_page.png")
+            if out_path:
+                st.success("manga_page.png を生成しました")
+                st.rerun()
+        else:
+            st.warning("結合するパネル画像がありません")
+
+    manga_page = OUTPUT_DIR / "manga_page.png"
+    if manga_page.exists():
+        st.markdown("**manga_page.png**")
+        try:
+            st.image(str(manga_page))
+            with open(manga_page, "rb") as f:
+                data = f.read()
+            st.download_button(
+                "💾 コマ割り画像を保存",
+                data=data,
+                file_name="manga_page.png",
+                mime="image/png",
+                key=f"{key_prefix}_dl_manga_page",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"読み込みエラー: {e}")
+
     return True
 
 
