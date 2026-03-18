@@ -515,7 +515,49 @@ def render_manga_tab(options, characters, project_data):
     st.divider()
 
     # --- 保存 & 生成 ---
-    col_save, col_gen, col_prompt, _ = st.columns([1, 1, 1, 1])
+    st.subheader("操作を選んでください")
+    # API不要（おすすめ）を先に大きく表示
+    col_prompt_lead, _ = st.columns([1, 2])
+    with col_prompt_lead:
+        if st.button("📋 プロンプトをコピー（API不要）", type="primary", use_container_width=True, key="prompt_btn"):
+            project = project_data.get("project", {})
+            project["usage"] = usage_key
+            project["canvas_ratio"] = canvas_key
+            project["aspect_ratio"] = canvas_key
+            project["canvas_ratio_label"] = canvas_label
+            project["total_panels"] = total_panels
+            project["genre"] = genre_key
+            project["genre_label"] = genre_label
+            project["design_structure"] = design_key
+            project["design_structure_label"] = design_label
+            project["art_taste"] = taste_key
+            project["art_taste_label"] = taste_label
+            new_panels = []
+            for p in panels:
+                d = {"number": p["number"], "characters": p["characters"], "dialogue": p.get("dialogue", [])}
+                if p["title"]:
+                    d["title"] = p["title"]
+                if p["text"]:
+                    d["text"] = p["text"]
+                d["scene"] = p.get("scene") or "（未設定）"
+                d["shot"] = p.get("shot") or "（適切な構図）"
+                d["action"] = p.get("action") or p["text"] or "（未設定）"
+                new_panels.append(d)
+            save_project({"project": project, "panels": new_panels})
+            try:
+                from src.manga_generator import get_prompt_for_panel
+            except ImportError:
+                from manga_generator import get_prompt_for_panel
+            prompts = []
+            for p in new_panels:
+                txt = get_prompt_for_panel(p["number"], CONFIG_DIR)
+                if txt:
+                    prompts.append((p["number"], txt))
+            st.session_state["panel_prompts"] = prompts
+            st.rerun()
+    st.caption("↑ おすすめ：Geminiに貼り付けて手動で画像生成（API費用なし）")
+
+    col_save, col_gen = st.columns(2)
 
     with col_save:
         if st.button("💾 設定を保存", use_container_width=True):
@@ -548,7 +590,7 @@ def render_manga_tab(options, characters, project_data):
             st.success("project.yaml に保存しました")
 
     with col_gen:
-        if st.button("🎨 画像を生成", type="primary", use_container_width=True):
+        if st.button("🎨 画像を生成（API使用・有料）", use_container_width=True):
             # 保存してから生成（UI の全設定を project に反映）
             project = project_data.get("project", {})
             project["usage"] = usage_key
@@ -599,45 +641,6 @@ def render_manga_tab(options, characters, project_data):
             progress.progress(1.0)
             status.text("完了")
             st.balloons()
-
-    with col_prompt:
-        if st.button("📋 プロンプトをコピー（API不要）", use_container_width=True):
-            # 保存してからプロンプトを生成
-            project = project_data.get("project", {})
-            project["usage"] = usage_key
-            project["canvas_ratio"] = canvas_key
-            project["aspect_ratio"] = canvas_key
-            project["canvas_ratio_label"] = canvas_label
-            project["total_panels"] = total_panels
-            project["genre"] = genre_key
-            project["genre_label"] = genre_label
-            project["design_structure"] = design_key
-            project["design_structure_label"] = design_label
-            project["art_taste"] = taste_key
-            project["art_taste_label"] = taste_label
-            new_panels = []
-            for p in panels:
-                d = {"number": p["number"], "characters": p["characters"], "dialogue": p.get("dialogue", [])}
-                if p["title"]:
-                    d["title"] = p["title"]
-                if p["text"]:
-                    d["text"] = p["text"]
-                d["scene"] = p.get("scene") or "（未設定）"
-                d["shot"] = p.get("shot") or "（適切な構図）"
-                d["action"] = p.get("action") or p["text"] or "（未設定）"
-                new_panels.append(d)
-            save_project({"project": project, "panels": new_panels})
-            try:
-                from src.manga_generator import get_prompt_for_panel
-            except ImportError:
-                from manga_generator import get_prompt_for_panel
-            prompts = []
-            for p in new_panels:
-                txt = get_prompt_for_panel(p["number"], CONFIG_DIR)
-                if txt:
-                    prompts.append((p["number"], txt))
-            st.session_state["panel_prompts"] = prompts
-            st.rerun()
 
     # プロンプト表示エリア（コピー用）
     if st.session_state.get("panel_prompts"):
