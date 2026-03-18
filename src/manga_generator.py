@@ -344,24 +344,6 @@ def build_panel_prompt_with_koma(
     return build_panel_prompt(panel_for_prompt, chars_config, chars_in_panel, project_config)
 
 
-def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
-    """全枚目・全コマをフラット化して (label, prompt) のリストを返す"""
-    chars_config, project_config = load_config(config_dir)
-    panels = project_config.get("panels", [])
-    all_chars = chars_config.get("characters", [])
-    result = []
-    for panel in panels:
-        char_ids = panel.get("characters", [])
-        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
-        koma_list = _get_koma_list(panel)
-        page_num = panel.get("number", 0)
-        for k, koma in enumerate(koma_list):
-            label = f"{page_num}枚目・{k + 1}コマ目"
-            prompt = build_panel_prompt_with_koma(
-                panel, koma, chars_config, chars_in_panel, project_config
-            )
-            result.append((label, prompt))
-    return result
 
 
 def run_all_flat(config_dir: Path, output_dir: Path) -> list[tuple[str, bool]]:
@@ -491,30 +473,6 @@ def _flatten_panels(panels: list[dict]) -> list[tuple[int, int, dict]]:
     return result
 
 
-def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
-    """
-    全枚目・全コマのプロンプトをフラットに取得。
-    Returns: [(label, prompt_text), ...] 例: ("1枚目・1コマ目", "...")
-    """
-    chars_config, project_config = load_config(config_dir)
-    panels = project_config.get("panels", [])
-    all_chars = chars_config.get("characters", [])
-
-    result = []
-    for seq_idx, page_num, koma in _flatten_panels(panels):
-        panel = next((p for p in panels if p.get("number") == page_num), None)
-        if not panel:
-            continue
-        char_ids = panel.get("characters", [])
-        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
-        koma_idx = sum(1 for sid, pn, _ in _flatten_panels(panels) if (sid < seq_idx and pn == page_num) or (pn < page_num))
-        label = f"{page_num}枚目・{koma_idx + 1}コマ目"
-        panel_with_koma = {**panel, "scene": koma.get("scene", ""), "shot": koma.get("shot", ""), "action": koma.get("action", "")}
-        prompt = build_panel_prompt(panel_with_koma, chars_config, chars_in_panel, project_config)
-        result.append((label, prompt))
-    return result
-
-
 def run_all_flat(config_dir: Path, output_dir: Path) -> list[bool]:
     """枚目・コマをフラット化して、各コマごとに1画像生成。Returns: [success, ...]"""
     chars_config, project_config = load_config(config_dir)
@@ -559,7 +517,7 @@ def _flatten_panels(panels: list[dict]) -> list[tuple[str, dict, dict]]:
     return result
 
 
-def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_koma") -> list[tuple[str, str]]:
+def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> list[tuple[str, str]]:
     """
     プロンプトを取得。
     - per_koma: 各コマごとに1プロンプト（コマ数分）

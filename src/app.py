@@ -583,7 +583,7 @@ def render_manga_tab(options, characters, project_data):
                 from src.manga_generator import get_all_prompts_flat
             except ImportError:
                 from manga_generator import get_all_prompts_flat
-            prompts = get_all_prompts_flat(CONFIG_DIR)
+            prompts = get_all_prompts_flat(CONFIG_DIR, output_mode_key)
             st.session_state["panel_prompts"] = [(label, txt) for label, txt in prompts]
             st.rerun()
     st.caption("↑ おすすめ：Geminiに貼り付けて手動で画像生成（API費用なし）")
