@@ -195,19 +195,78 @@ def render_character_tab():
     fields = template.get("fields", [])
     desc_tpl = template.get("description_template", "")
 
+    editing_idx = st.session_state.get("editing_char_index", None)
+    if editing_idx is not None and (editing_idx < 0 or editing_idx >= len(characters)):
+        st.session_state.pop("editing_char_index", None)
+        editing_idx = None
+
     st.subheader("登録キャラクター一覧")
     if not characters:
         st.info("まだキャラクターがありません。下のテンプレートから新規作成してください。")
     else:
         for i, c in enumerate(characters):
-            with st.expander(f"**{c.get('name', c['id'])}** ({c['id']})", expanded=False):
-                st.text(f"英語名: {c.get('name_en', '-')}")
-                st.text(f"口調: {c.get('voice_style', '-')}")
-                if st.button(f"🗑 削除", key=f"del_char_{i}"):
-                    characters.pop(i)
-                    chars_data["characters"] = characters
-                    save_characters(chars_data)
-                    st.rerun()
+            is_editing = editing_idx == i
+            with st.expander(
+                f"**{c.get('name', c['id'])}** ({c['id']})" + (" ← 編集中" if is_editing else ""),
+                expanded=is_editing,
+            ):
+                if is_editing:
+                    # 編集フォーム
+                    with st.form(key=f"edit_char_form_{i}"):
+                        st.caption("IDは変更できません（他タブでの参照のため）")
+                        edit_name = st.text_input("名前（日本語）", value=c.get("name", ""), key=f"edit_name_{i}")
+                        edit_name_en = st.text_input("名前（英語・プロンプト用）", value=c.get("name_en", ""), key=f"edit_name_en_{i}")
+                        edit_description = st.text_area(
+                            "外見・特徴の説明（プロンプト用・英語推奨）",
+                            value=c.get("description", ""),
+                            height=150,
+                            key=f"edit_desc_{i}",
+                        )
+                        edit_personality = st.text_input(
+                            "性格・表情の傾向",
+                            value=c.get("personality_hints", ""),
+                            key=f"edit_personality_{i}",
+                        )
+                        edit_voice = st.text_input("セリフの口調", value=c.get("voice_style", ""), key=f"edit_voice_{i}")
+                        col_btn1, col_btn2, _ = st.columns([1, 1, 2])
+                        with col_btn1:
+                            if st.form_submit_button("保存"):
+                                if edit_name.strip() and edit_name_en.strip():
+                                    characters[i] = {
+                                        **c,
+                                        "name": edit_name.strip(),
+                                        "name_en": edit_name_en.strip(),
+                                        "description": edit_description.strip(),
+                                        "personality_hints": edit_personality.strip(),
+                                        "voice_style": edit_voice.strip(),
+                                    }
+                                    chars_data["characters"] = characters
+                                    save_characters(chars_data)
+                                    st.session_state.pop("editing_char_index", None)
+                                    st.success(f"「{edit_name.strip()}」を更新しました")
+                                    st.rerun()
+                                else:
+                                    st.error("名前（日本語）・名前（英語）は必須です")
+                        with col_btn2:
+                            if st.form_submit_button("キャンセル"):
+                                st.session_state.pop("editing_char_index", None)
+                                st.rerun()
+                else:
+                    st.text(f"英語名: {c.get('name_en', '-')}")
+                    st.text(f"口調: {c.get('voice_style', '-')}")
+                    st.caption("外見説明（抜粋）: " + (c.get("description", "")[:80] + "…" if len(c.get("description", "")) > 80 else c.get("description", "")[:80]))
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        if st.button("✏️ 編集", key=f"edit_btn_{i}"):
+                            st.session_state["editing_char_index"] = i
+                            st.rerun()
+                    with col_b:
+                        if st.button("🗑 削除", key=f"del_char_{i}"):
+                            characters.pop(i)
+                            chars_data["characters"] = characters
+                            save_characters(chars_data)
+                            st.session_state.pop("editing_char_index", None)
+                            st.rerun()
 
     st.divider()
     st.subheader("テンプレートから新規作成")
