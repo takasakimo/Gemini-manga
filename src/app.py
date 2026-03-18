@@ -448,24 +448,51 @@ def render_manga_tab(options, characters, project_data):
                 cid = dialogue_rows[0]["char_sel"].split("(")[-1].rstrip(")") if dialogue_rows[0]["char_sel"] != "入れない(背景・世界観のみ)" else main_chars[0]
                 dialogue_list = [{"character": cid, "text": dialogue_rows[0]["text"]}]
 
-            scene = st.text_input(
-                "場面・背景（任意）",
-                value=existing.get("scene", ""),
-                placeholder="例: 教室の窓際。朝の光が差し込む。",
-                key=f"scene_{i}",
-            )
-            shot = st.text_input(
-                "構図・カメラアングル（任意）",
-                value=existing.get("shot", ""),
-                placeholder="例: 全身が入る、上半身、手元クローズアップ",
-                key=f"shot_{i}",
-            )
-            action = st.text_input(
-                "構図・アクション（任意）",
-                value=existing.get("action", ""),
-                placeholder="例: 手を挙げて笑顔で挨拶。",
-                key=f"action_{i}",
-            )
+            # コマ（一コマ目・二コマ目…）の入れ子構造
+            existing_koma = existing.get("koma") or []
+            if not existing_koma and (existing.get("scene") or existing.get("shot") or existing.get("action")):
+                existing_koma = [{"scene": existing.get("scene", ""), "shot": existing.get("shot", ""), "action": existing.get("action", "")}]
+            if not existing_koma:
+                existing_koma = [{"scene": "", "shot": "", "action": ""}]
+
+            num_koma = st.session_state.get(f"koma_count_{i}", len(existing_koma))
+            koma_list = []
+            for k in range(num_koma):
+                ex_k = existing_koma[k] if k < len(existing_koma) else {"scene": "", "shot": "", "action": ""}
+                with st.expander(f"□ {k + 1}コマ目", expanded=(num_koma <= 2)):
+                    scene_k = st.text_input(
+                        f"{k + 1}コマ目 場面・背景",
+                        value=ex_k.get("scene", ""),
+                        placeholder="例: 教室の窓際。朝の光が差し込む。",
+                        key=f"scene_{i}_{k}",
+                    )
+                    shot_k = st.text_input(
+                        f"{k + 1}コマ目 構図・カメラアングル",
+                        value=ex_k.get("shot", ""),
+                        placeholder="例: 全身が入る、上半身、手元クローズアップ",
+                        key=f"shot_{i}_{k}",
+                    )
+                    action_k = st.text_input(
+                        f"{k + 1}コマ目 構図・アクション",
+                        value=ex_k.get("action", ""),
+                        placeholder="例: 手を挙げて笑顔で挨拶。",
+                        key=f"action_{i}_{k}",
+                    )
+                    koma_list.append({
+                        "scene": scene_k or "（未設定）",
+                        "shot": shot_k or "（適切な構図）",
+                        "action": action_k or (dialogue_list[k]["text"] if k < len(dialogue_list) else "（未設定）"),
+                    })
+
+            btn_k1, btn_k2 = st.columns(2)
+            with btn_k1:
+                if st.button(f"➕ コマを追加", key=f"add_koma_{i}"):
+                    st.session_state[f"koma_count_{i}"] = num_koma + 1
+                    st.rerun()
+            with btn_k2:
+                if num_koma > 1 and st.button(f"➖ コマを削除", key=f"rem_koma_{i}"):
+                    st.session_state[f"koma_count_{i}"] = num_koma - 1
+                    st.rerun()
 
             first_text = dialogue_list[0]["text"] if dialogue_list else ""
             panels.append({
@@ -473,9 +500,7 @@ def render_manga_tab(options, characters, project_data):
                 "title": title,
                 "text": first_text,
                 "characters": main_chars,
-                "scene": scene or "（未設定）",
-                "shot": shot or "（適切な構図）",
-                "action": action or first_text or "（未設定）",
+                "koma": koma_list,
                 "dialogue": dialogue_list,
             })
 
@@ -539,21 +564,20 @@ def render_manga_tab(options, characters, project_data):
                     d["title"] = p["title"]
                 if p["text"]:
                     d["text"] = p["text"]
-                d["scene"] = p.get("scene") or "（未設定）"
-                d["shot"] = p.get("shot") or "（適切な構図）"
-                d["action"] = p.get("action") or p["text"] or "（未設定）"
+                koma_list = p.get("koma") or []
+                if not koma_list and (p.get("scene") or p.get("shot") or p.get("action")):
+                    koma_list = [{"scene": p.get("scene",""), "shot": p.get("shot",""), "action": p.get("action","")}]
+                if not koma_list:
+                    koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+                d["koma"] = koma_list
                 new_panels.append(d)
             save_project({"project": project, "panels": new_panels})
             try:
-                from src.manga_generator import get_prompt_for_panel
+                from src.manga_generator import get_all_prompts_flat
             except ImportError:
-                from manga_generator import get_prompt_for_panel
-            prompts = []
-            for p in new_panels:
-                txt = get_prompt_for_panel(p["number"], CONFIG_DIR)
-                if txt:
-                    prompts.append((p["number"], txt))
-            st.session_state["panel_prompts"] = prompts
+                from manga_generator import get_all_prompts_flat
+            prompts = get_all_prompts_flat(CONFIG_DIR)
+            st.session_state["panel_prompts"] = [(label, txt) for label, txt in prompts]
             st.rerun()
     st.caption("↑ おすすめ：Geminiに貼り付けて手動で画像生成（API費用なし）")
 
@@ -581,9 +605,10 @@ def render_manga_tab(options, characters, project_data):
                     d["title"] = p["title"]
                 if p["text"]:
                     d["text"] = p["text"]
-                d["scene"] = p.get("scene") or "（未設定）"
-                d["shot"] = p.get("shot") or "（適切な構図）"
-                d["action"] = p.get("action") or p["text"] or "（未設定）"
+                koma_list = p.get("koma") or []
+                if not koma_list:
+                    koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+                d["koma"] = koma_list
                 new_panels.append(d)
 
             save_project({"project": project, "panels": new_panels})
@@ -611,9 +636,10 @@ def render_manga_tab(options, characters, project_data):
                     d["title"] = p["title"]
                 if p["text"]:
                     d["text"] = p["text"]
-                d["scene"] = p.get("scene") or "（未設定）"
-                d["action"] = p.get("action") or p["text"] or "（未設定）"
-                d["shot"] = p.get("shot") or "（未設定）"
+                koma_list = p.get("koma") or []
+                if not koma_list:
+                    koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+                d["koma"] = koma_list
                 new_panels.append(d)
 
             save_project({"project": project, "panels": new_panels})
@@ -622,21 +648,22 @@ def render_manga_tab(options, characters, project_data):
             status = st.empty()
 
             try:
-                from src.manga_generator import run_panel
+                from src.manga_generator import run_all_flat
             except ImportError:
-                from manga_generator import run_panel
+                from manga_generator import run_all_flat
 
             config_dir = CONFIG_DIR
             output_dir = OUTPUT_DIR
 
-            for idx, p in enumerate(new_panels):
-                status.text(f"生成中: {p['number']}枚目...")
-                progress.progress((idx + 1) / len(new_panels))
-                success = run_panel(p["number"], config_dir, output_dir)
-                if success:
-                    st.success(f"Panel {p['number']} 保存完了")
+            results = run_all_flat(config_dir, output_dir)
+            total = len(results)
+            for idx, ok in enumerate(results):
+                progress.progress((idx + 1) / total)
+                status.text(f"生成中: {idx + 1}/{total}コマ目...")
+                if ok:
+                    st.success(f"panel_{idx + 1:03d}.png 保存完了")
                 else:
-                    st.error(f"Panel {p['number']} エラー")
+                    st.error(f"panel_{idx + 1:03d} エラー")
 
             progress.progress(1.0)
             status.text("完了")
@@ -647,16 +674,17 @@ def render_manga_tab(options, characters, project_data):
         st.divider()
         st.subheader("📋 プロンプト（Geminiに貼り付けてください）")
         st.caption("各コマのプロンプトをコピーして、Gemini（Web/アプリ）に貼り付け、画像を生成してください。API費用はかかりません。")
-        for num, prompt_text in st.session_state["panel_prompts"]:
-            with st.expander(f"■ {num}枚目のプロンプト", expanded=True):
+        for idx, (label, prompt_text) in enumerate(st.session_state["panel_prompts"]):
+            safe_name = label.replace("・", "_").replace("枚", "").replace("コマ", "k")
+            with st.expander(f"■ {label} のプロンプト", expanded=True):
                 st.caption("下の枠内を選択してコピー (Cmd+C / Ctrl+C)、またはダウンロードしてください")
                 st.code(prompt_text, language=None, line_numbers=False)
                 st.download_button(
-                    f"panel_{num:03d}_prompt.txt をダウンロード",
+                    f"{label}_prompt.txt をダウンロード",
                     data=prompt_text,
-                    file_name=f"panel_{num:03d}_prompt.txt",
+                    file_name=f"{safe_name}_prompt.txt",
                     mime="text/plain",
-                    key=f"prompt_dl_{num}",
+                    key=f"prompt_dl_{idx}",
                 )
 
     # --- 生成済み画像のプレビュー & 保存（同じ画面で表示） ---

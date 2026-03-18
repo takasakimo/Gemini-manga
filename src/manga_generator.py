@@ -206,22 +206,82 @@ def generate_image(
     return False
 
 
-def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str | None:
-    """
-    指定コマのプロンプト文字列を取得する（APIは呼ばない）。
-    コピー用・Geminiに貼り付け用。
-    """
+def _get_koma_list(panel: dict) -> list[dict]:
+    """枚目からコマリストを取得。旧形式(scene/shot/action)の場合は1コマに変換"""
+    koma = panel.get("koma") or []
+    if not koma and (panel.get("scene") or panel.get("shot") or panel.get("action")):
+        koma = [{"scene": panel.get("scene", ""), "shot": panel.get("shot", ""), "action": panel.get("action", "")}]
+    if not koma:
+        koma = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+    return koma
+
+
+def build_panel_prompt_with_koma(
+    panel: dict,
+    koma: dict,
+    chars_config: dict,
+    chars_in_panel: list[dict],
+    project_config: dict | None,
+    dialogue_index: int = 0,
+) -> str:
+    """コマ単位でプロンプトを構築。dialogue_index でセリフを割り当て"""
+    panel_for_prompt = {
+        **panel,
+        "scene": koma.get("scene", ""),
+        "shot": koma.get("shot", ""),
+        "action": koma.get("action", ""),
+    }
+    dialogues = panel.get("dialogue") or []
+    if dialogue_index < len(dialogues):
+        panel_for_prompt = {**panel_for_prompt, "dialogue": [dialogues[dialogue_index]]}
+    return build_panel_prompt(panel_for_prompt, chars_config, chars_in_panel, project_config)
+
+
+def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
+    """全枚目・全コマをフラット化して (label, prompt) のリストを返す"""
     chars_config, project_config = load_config(config_dir)
     panels = project_config.get("panels", [])
     all_chars = chars_config.get("characters", [])
+    result = []
+    for panel in panels:
+        char_ids = panel.get("characters", [])
+        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+        koma_list = _get_koma_list(panel)
+        page_num = panel.get("number", 0)
+        for k, koma in enumerate(koma_list):
+            label = f"{page_num}枚目・{k + 1}コマ目"
+            prompt = build_panel_prompt_with_koma(
+                panel, koma, chars_config, chars_in_panel, project_config, dialogue_index=k
+            )
+            result.append((label, prompt))
+    return result
 
-    panel = next((p for p in panels if p.get("number") == panel_number), None)
-    if not panel:
-        return None
 
-    char_ids = panel.get("characters", [])
-    chars_in_panel = get_characters_for_panel(char_ids, all_chars)
-    return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
+def run_all_flat(config_dir: Path, output_dir: Path) -> list[tuple[str, bool]]:
+    """全コマをフラット化して1コマ=1画像で生成。((label, success), ...) を返す"""
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+    proj = project_config.get("project", {})
+    aspect = proj.get("aspect_ratio") or proj.get("canvas_ratio") or "3:4"
+    results = []
+    seq = 0
+    for panel in panels:
+        char_ids = panel.get("characters", [])
+        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+        koma_list = _get_koma_list(panel)
+        page_num = panel.get("number", 0)
+        for k, koma in enumerate(koma_list):
+            seq += 1
+            label = f"{page_num}枚目・{k + 1}コマ目"
+            prompt = build_panel_prompt_with_koma(
+                panel, koma, chars_config, chars_in_panel, project_config, dialogue_index=k
+            )
+            output_path = output_dir / f"panel_{seq:03d}"
+            print(f"Generating {label} -> panel_{seq:03d}.png ...")
+            ok = generate_image(prompt, output_path, aspect_ratio=aspect)
+            results.append((label, ok))
+    return results
 
 
 def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str:
@@ -310,8 +370,126 @@ def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str | None:
     return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
 
 
+def _flatten_panels(panels: list[dict]) -> list[tuple[int, int, dict]]:
+    """枚目・コマをフラット化。(sequential_idx, page_num, koma_data) のリスト"""
+    result = []
+    for p in panels:
+        koma_list = p.get("koma") or []
+        if not koma_list and (p.get("scene") or p.get("shot") or p.get("action")):
+            koma_list = [{"scene": p.get("scene", ""), "shot": p.get("shot", ""), "action": p.get("action", "")}]
+        if not koma_list:
+            koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+        for koma in koma_list:
+            result.append((len(result), p["number"], koma))
+    return result
+
+
+def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
+    """
+    全枚目・全コマのプロンプトをフラットに取得。
+    Returns: [(label, prompt_text), ...] 例: ("1枚目・1コマ目", "...")
+    """
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+
+    result = []
+    for seq_idx, page_num, koma in _flatten_panels(panels):
+        panel = next((p for p in panels if p.get("number") == page_num), None)
+        if not panel:
+            continue
+        char_ids = panel.get("characters", [])
+        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+        koma_idx = sum(1 for sid, pn, _ in _flatten_panels(panels) if (sid < seq_idx and pn == page_num) or (pn < page_num))
+        label = f"{page_num}枚目・{koma_idx + 1}コマ目"
+        panel_with_koma = {**panel, "scene": koma.get("scene", ""), "shot": koma.get("shot", ""), "action": koma.get("action", "")}
+        prompt = build_panel_prompt(panel_with_koma, chars_config, chars_in_panel, project_config)
+        result.append((label, prompt))
+    return result
+
+
+def run_all_flat(config_dir: Path, output_dir: Path) -> list[bool]:
+    """枚目・コマをフラット化して、各コマごとに1画像生成。Returns: [success, ...]"""
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+    aspect = project_config.get("project", {}).get("aspect_ratio") or project_config.get("project", {}).get("canvas_ratio") or "3:4"
+
+    results = []
+    flat = _flatten_panels(panels)
+    for seq_idx, page_num, koma in flat:
+        panel = next((p for p in panels if p.get("number") == page_num), None)
+        if not panel:
+            results.append(False)
+            continue
+        char_ids = panel.get("characters", [])
+        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+        panel_with_koma = {**panel, "scene": koma.get("scene", ""), "shot": koma.get("shot", ""), "action": koma.get("action", "")}
+        prompt = build_panel_prompt(panel_with_koma, chars_config, chars_in_panel, project_config)
+        output_path = output_dir / f"panel_{seq_idx + 1:03d}"
+        print(f"Generating {page_num}枚目・{seq_idx + 1}番目...")
+        ok = generate_image(prompt, output_path, aspect_ratio=aspect)
+        results.append(ok)
+    return results
+
+
+def _flatten_panels(panels: list[dict]) -> list[tuple[str, dict, dict]]:
+    """枚目・コマをフラット化。(label, panel_merged, koma) のリストを返す"""
+    result = []
+    for p in panels:
+        koma_list = p.get("koma") or []
+        if not koma_list and (p.get("scene") or p.get("shot") or p.get("action")):
+            koma_list = [{"scene": p.get("scene", ""), "shot": p.get("shot", ""), "action": p.get("action", "")}]
+        if not koma_list:
+            koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+        for ki, koma in enumerate(koma_list):
+            label = f"{p['number']}枚目・{ki + 1}コマ目"
+            merged = {**p, "scene": koma.get("scene", ""), "shot": koma.get("shot", ""), "action": koma.get("action", "")}
+            result.append((label, merged, koma))
+    return result
+
+
+def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
+    """全コマのプロンプトをフラットに取得。[(label, prompt), ...]"""
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+    result = []
+    for label, merged, _ in _flatten_panels(panels):
+        char_ids = merged.get("characters", [])
+        chars_in = get_characters_for_panel(char_ids, all_chars)
+        prompt = build_panel_prompt(merged, chars_config, chars_in, project_config)
+        result.append((label, prompt))
+    return result
+
+
+def run_all_flat(config_dir: Path, output_dir: Path) -> list[bool]:
+    """全コマをフラットに1枚ずつ生成。各成功/失敗のリストを返す"""
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+    proj = project_config.get("project", {})
+    aspect = proj.get("aspect_ratio") or proj.get("canvas_ratio") or "3:4"
+    flat = _flatten_panels(panels)
+    results = []
+    for idx, (label, merged, _) in enumerate(flat):
+        char_ids = merged.get("characters", [])
+        chars_in = get_characters_for_panel(char_ids, all_chars)
+        prompt = build_panel_prompt(merged, chars_config, chars_in, project_config)
+        out_path = output_dir / f"panel_{idx + 1:03d}"
+        print(f"Generating {label}...")
+        ok = generate_image(prompt, out_path, aspect_ratio=aspect)
+        results.append(ok)
+    return results
+
+
 def run_all(config_dir: Path, output_dir: Path) -> None:
     """全コマの画像を生成（project.yaml の panels に定義された分）"""
+    run_all_flat(config_dir, output_dir)
+
+
+def _run_all_legacy(config_dir: Path, output_dir: Path) -> None:
+    """旧形式（枚目=1画像）用。koma未対応の後方互換"""
     _, project_config = load_config(config_dir)
     panels = project_config.get("panels", [])
     total = project_config.get("project", {}).get("total_panels")
