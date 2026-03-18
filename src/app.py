@@ -590,34 +590,34 @@ def render_manga_tab(options, characters, project_data):
 
     if st.button("💾 設定を保存", use_container_width=True):
         project = project_data.get("project", {})
-            project["usage"] = usage_key
-            project["canvas_ratio"] = canvas_key
-            project["aspect_ratio"] = canvas_key
-            project["canvas_ratio_label"] = canvas_label
-            project["total_panels"] = total_panels
-            project["output_mode"] = output_mode_key
-            project["genre"] = genre_key
-            project["genre_label"] = genre_label
-            project["design_structure"] = design_key
-            project["design_structure_label"] = design_label
-            project["art_taste"] = taste_key
-            project["art_taste_label"] = taste_label
+        project["usage"] = usage_key
+        project["canvas_ratio"] = canvas_key
+        project["aspect_ratio"] = canvas_key
+        project["canvas_ratio_label"] = canvas_label
+        project["total_panels"] = total_panels
+        project["output_mode"] = output_mode_key
+        project["genre"] = genre_key
+        project["genre_label"] = genre_label
+        project["design_structure"] = design_key
+        project["design_structure_label"] = design_label
+        project["art_taste"] = taste_key
+        project["art_taste_label"] = taste_label
 
-            new_panels = []
-            for p in panels:
-                d = {"number": p["number"], "characters": p["characters"], "dialogue": p.get("dialogue", [])}
-                if p["title"]:
-                    d["title"] = p["title"]
-                if p["text"]:
-                    d["text"] = p["text"]
-                koma_list = p.get("koma") or []
-                if not koma_list:
-                    koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
-                d["koma"] = koma_list
-                new_panels.append(d)
+        new_panels = []
+        for p in panels:
+            d = {"number": p["number"], "characters": p["characters"], "dialogue": p.get("dialogue", [])}
+            if p["title"]:
+                d["title"] = p["title"]
+            if p["text"]:
+                d["text"] = p["text"]
+            koma_list = p.get("koma") or []
+            if not koma_list:
+                koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+            d["koma"] = koma_list
+            new_panels.append(d)
 
-            save_project({"project": project, "panels": new_panels})
-            st.success("project.yaml に保存しました")
+        save_project({"project": project, "panels": new_panels})
+        st.success("project.yaml に保存しました")
 
     # プロンプト表示エリア（コピー用）
     if st.session_state.get("panel_prompts"):
