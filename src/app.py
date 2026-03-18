@@ -303,7 +303,7 @@ def render_manga_tab(options, characters, project_data):
     # --- Step 1: 作りたい画像の設定 ---
     st.header("1. 作りたい画像の設定")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     usage_opts = options.get("usage", [["standard", "標準漫画"]])
     usage_key_idx = {opts[0]: i for i, opts in enumerate(usage_opts)}
@@ -334,9 +334,25 @@ def render_manga_tab(options, characters, project_data):
     with col3:
         total_panels = st.number_input("出力枚数", min_value=1, max_value=20, value=proj.get("total_panels", 5))
 
+    output_mode_opts = options.get("output_mode", [
+        ["per_koma", "各コマを個別画像"],
+        ["per_page", "1枚目を1画像に"],
+    ])
+    output_mode_idx = {o[0]: i for i, o in enumerate(output_mode_opts)}
+    with col4:
+        om_labels = [o[1] for o in output_mode_opts]
+        om_sel = st.selectbox(
+            "出力モード",
+            range(len(om_labels)),
+            format_func=lambda i: om_labels[i],
+            index=output_mode_idx.get(proj.get("output_mode", "per_koma"), 0),
+            help="「1枚目を1画像に」: 複数コマを1枚の漫画ページとしてプロンプト生成",
+        )
+        output_mode_key = output_mode_opts[om_sel][0]
+
     genre_opts = options.get("genre", [["none", "指定なし (標準)"]])
     genre_key_idx = {opts[0]: i for i, opts in enumerate(genre_opts)}
-    with col4:
+    with col5:
         genre_labels = [opts[1] for opts in genre_opts]
         genre_sel = st.selectbox(
             "ターゲットジャンル・世界観",
@@ -541,6 +557,7 @@ def render_manga_tab(options, characters, project_data):
             project["aspect_ratio"] = canvas_key
             project["canvas_ratio_label"] = canvas_label
             project["total_panels"] = total_panels
+            project["output_mode"] = output_mode_key
             project["genre"] = genre_key
             project["genre_label"] = genre_label
             project["design_structure"] = design_key
@@ -581,6 +598,7 @@ def render_manga_tab(options, characters, project_data):
             project["aspect_ratio"] = canvas_key
             project["canvas_ratio_label"] = canvas_label
             project["total_panels"] = total_panels
+            project["output_mode"] = output_mode_key
             project["genre"] = genre_key
             project["genre_label"] = genre_label
             project["design_structure"] = design_key
@@ -612,6 +630,7 @@ def render_manga_tab(options, characters, project_data):
             project["canvas_ratio"] = canvas_key
             project["aspect_ratio"] = canvas_key
             project["total_panels"] = total_panels
+            project["output_mode"] = output_mode_key
             project["genre"] = genre_key
             project["genre_label"] = genre_label
             project["design_structure"] = design_key

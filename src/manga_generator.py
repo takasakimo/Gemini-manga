@@ -140,6 +140,94 @@ def build_panel_prompt(
     return "\n".join(p for p in parts if p).strip()
 
 
+def build_page_prompt(
+    panel: dict,
+    chars_config: dict,
+    chars_in_panel: list[dict],
+    project_config: dict | None = None,
+) -> str:
+    """
+    1枚目（複数コマ）を1枚の画像用にまとめたプロンプトを構築。
+    各コマの場面・構図・セリフを1つの manga page として記述する。
+    """
+    char_prompts = build_character_prompts(chars_in_panel)
+    art_style = chars_config.get("series", {}).get("art_style", "").strip()
+    style_neg = chars_config.get("series", {}).get("style_negative", "").strip()
+    char_map = {c["id"]: c for c in chars_config.get("characters", [])}
+    title = panel.get("title", "")
+
+    koma_list = _get_koma_list(panel)
+    num_panels = len(koma_list)
+
+    # project hints
+    project_hints = []
+    if project_config:
+        config_dir = Path(__file__).resolve().parent.parent / "config"
+        hints_data = load_prompt_hints(config_dir)
+        proj = project_config.get("project", {})
+        usage = proj.get("usage", "standard_manga")
+        art_taste = proj.get("art_taste", "standard")
+        design_structure = proj.get("design_structure", "standard")
+        genre = proj.get("genre", "none")
+        if hints_data:
+            if usage in hints_data.get("usage", {}):
+                project_hints.append(f"Format: {hints_data['usage'][usage]}")
+            if art_taste in hints_data.get("art_taste", {}):
+                project_hints.append(f"Art style: {hints_data['art_taste'][art_taste]}")
+            if design_structure in hints_data.get("design_structure", {}):
+                project_hints.append(f"Panel/composition: {hints_data['design_structure'][design_structure]}")
+            if genre in hints_data.get("genre", {}) and genre != "none":
+                project_hints.append(f"Mood/worldview: {hints_data['genre'][genre]}")
+
+    style_header = ""
+    if project_hints:
+        style_header = "STYLE REQUIREMENTS (must follow): " + " | ".join(project_hints) + "\n\n"
+
+    panel_descs = []
+    for ki, koma in enumerate(koma_list):
+        scene = koma.get("scene", "")
+        shot = koma.get("shot", "")
+        action = koma.get("action", "")
+        dialogues = koma.get("dialogue") or []
+        dial_lines = []
+        for d in dialogues:
+            text = d.get("text", "").strip()
+            if not text:
+                continue
+            char = char_map.get(d.get("character", ""), {})
+            name_en = char.get("name_en", d.get("character", ""))
+            dial_lines.append(f'  - {name_en}: "{text}"')
+        dial_str = "\n".join(dial_lines) if dial_lines else "  (none)"
+        panel_descs.append(
+            f"**Panel {ki + 1}:**\n"
+            f"  Setting: {scene or '(as appropriate)'}\n"
+            f"  Camera/shot: {shot or '(as appropriate)'}\n"
+            f"  Action: {action or '(as appropriate)'}\n"
+            f"  Dialogue (manga speech bubbles, Japanese text):\n{dial_str}"
+        )
+
+    panel_section = "\n\n".join(panel_descs)
+
+    parts = [
+        "Draw a SINGLE manga PAGE containing multiple panels/frames arranged vertically (top to bottom).",
+        "MOST IMPORTANT: Character consistency across ALL panels on this page.",
+        style_header.strip() if style_header else "",
+        f"Page title/heading (draw prominently if present): {title}" if title else "",
+        "CHARACTER DESCRIPTIONS (maintain exact appearance in every panel):",
+        char_prompts,
+        "",
+        f"PAGE LAYOUT: This image must contain {num_panels} distinct panels. Arrange them vertically with clear borders/ gutters between panels. Each panel is a separate scene.",
+        "",
+        "PANEL CONTENT (draw each panel as described):",
+        "",
+        panel_section,
+        "",
+        f"Base art style: {art_style}",
+        style_neg,
+    ]
+    return "\n".join(p for p in parts if p).strip()
+
+
 def generate_image(
     prompt: str,
     output_path: Path,
@@ -453,11 +541,29 @@ def _flatten_panels(panels: list[dict]) -> list[tuple[str, dict, dict]]:
     return result
 
 
-def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
-    """全コマのプロンプトをフラットに取得。[(label, prompt), ...]"""
+def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_koma") -> list[tuple[str, str]]:
+    """
+    プロンプトを取得。
+    - per_koma: 各コマごとに1プロンプト（コマ数分）
+    - per_page: 1枚目ごとに1プロンプト（複数コマを1枚の画像用にまとめる）
+    """
     chars_config, project_config = load_config(config_dir)
     panels = project_config.get("panels", [])
     all_chars = chars_config.get("characters", [])
+    proj = project_config.get("project", {})
+    mode = proj.get("output_mode", output_mode)
+
+    if mode == "per_page":
+        result = []
+        for p in panels:
+            char_ids = p.get("characters", [])
+            chars_in = get_characters_for_panel(char_ids, all_chars)
+            prompt = build_page_prompt(p, chars_config, chars_in, project_config)
+            label = f"{p.get('number', 0)}枚目（全コマ1枚）"
+            result.append((label, prompt))
+        return result
+
+    # per_koma
     result = []
     for label, merged, _ in _flatten_panels(panels):
         char_ids = merged.get("characters", [])
@@ -468,12 +574,31 @@ def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
 
 
 def run_all_flat(config_dir: Path, output_dir: Path) -> list[bool]:
-    """全コマをフラットに1枚ずつ生成。各成功/失敗のリストを返す"""
+    """
+    画像を生成。
+    - per_page: 1枚目ごとに1画像（複数コマを1枚に）
+    - per_koma: 各コマごとに1画像
+    """
     chars_config, project_config = load_config(config_dir)
     panels = project_config.get("panels", [])
     all_chars = chars_config.get("characters", [])
     proj = project_config.get("project", {})
     aspect = proj.get("aspect_ratio") or proj.get("canvas_ratio") or "3:4"
+    mode = proj.get("output_mode", "per_koma")
+
+    if mode == "per_page":
+        results = []
+        for idx, p in enumerate(panels):
+            char_ids = p.get("characters", [])
+            chars_in = get_characters_for_panel(char_ids, all_chars)
+            prompt = build_page_prompt(p, chars_config, chars_in, project_config)
+            out_path = output_dir / f"panel_{idx + 1:03d}"
+            print(f"Generating {p.get('number', idx + 1)}枚目（全コマ1枚）...")
+            ok = generate_image(prompt, out_path, aspect_ratio=aspect)
+            results.append(ok)
+        return results
+
+    # per_koma
     flat = _flatten_panels(panels)
     results = []
     for idx, (label, merged, _) in enumerate(flat):
