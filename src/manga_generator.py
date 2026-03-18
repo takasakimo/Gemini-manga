@@ -208,17 +208,35 @@ def build_page_prompt(
 
     panel_section = "\n\n".join(panel_descs)
 
+    # 1〜4コマを1枚の画像にまとめるレイアウト指示
+    if num_panels == 4:
+        layout = (
+            "LAYOUT: Draw ALL 4 panels in ONE single image. "
+            "Use a 2x2 grid (four equal panels in 2 rows × 2 columns) "
+            "with clear panel borders. This is a FOUR-PANEL MANGA format (yonkoma). "
+            "Output MUST be a single combined image, never separate images."
+        )
+    elif num_panels >= 2:
+        layout = (
+            f"LAYOUT: Draw ALL {num_panels} panels in ONE single image. "
+            "Arrange panels vertically (top to bottom) with clear borders between each. "
+            "Output MUST be a single combined image containing all panels, never separate images."
+        )
+    else:
+        layout = f"LAYOUT: Single panel. Output as one image."
+
     parts = [
-        "Draw a SINGLE manga PAGE containing multiple panels/frames arranged vertically (top to bottom).",
+        "CRITICAL: Produce ONE single image containing multiple manga panels. Do NOT generate separate images.",
+        "Draw a SINGLE manga page where ALL panels share the same canvas/frame.",
         "MOST IMPORTANT: Character consistency across ALL panels on this page.",
         style_header.strip() if style_header else "",
         f"Page title/heading (draw prominently if present): {title}" if title else "",
         "CHARACTER DESCRIPTIONS (maintain exact appearance in every panel):",
         char_prompts,
         "",
-        f"PAGE LAYOUT: This image must contain {num_panels} distinct panels. Arrange them vertically with clear borders/ gutters between panels. Each panel is a separate scene.",
+        layout,
         "",
-        "PANEL CONTENT (draw each panel as described):",
+        "PANEL CONTENT (draw each panel as described, all within the same image):",
         "",
         panel_section,
         "",
