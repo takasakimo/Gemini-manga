@@ -25,7 +25,7 @@ design_structure:
   youtube: "YouTube kamishibai style, horizontal layout, text overlay friendly, thumbnail-optimized."
   single_illust: "Single illustration focus, minimal text, maximum visual impact."
   cover: "Manga cover/poster style, large title space, character as main focus, eye-grabbing layout."
-  auto: "CRITICAL - AI DECIDES LAYOUT: Analyze the narrative, dialogue, and emotional beats. YOU determine: panel count (2-6), panel sizes (vary for impact: close-ups for emotion, wide shots for context), arrangement (vertical, 2x2, mixed, diagonal), camera angles, reading flow. Combine or split story beats as needed. Maximize storytelling impact. Like a professional manga artist laying out a page."
+  auto: "AI decides PLACEMENT and EFFECTS: Panel count is FIXED. YOU decide: position, panel sizes (LARGER for emotional climax/punchline/important lines, smaller for setup), arrangement. Analyze dialogue/action: add focus lines (集中線) for strong emotion, speed lines for movement, sweat drop (汗) for nervousness, blush for embarrassment. Do NOT merge panels."
 
 genre:
   none: ""

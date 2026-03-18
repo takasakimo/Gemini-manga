@@ -83,6 +83,18 @@ def _get_manga_production_block() -> str:
     )
 
 
+def _get_emotional_storytelling_block() -> str:
+    """セリフ・感情に応じた効果・コマサイズの判断指示"""
+    return (
+        "EMOTIONAL STORYTELLING (analyze dialogue & action per panel): "
+        "Strong emotion (anger, determination, surprise, climax) → add focus lines (集中線), make that panel LARGER. "
+        "Nervousness, embarrassment → sweat drop (汗), blush lines (照れ). "
+        "Movement, action → speed lines, action lines (効果線). "
+        "Punchline, key revelation → give that panel more space (larger). "
+        "Vary panel sizes to emphasize emotional beats and guide reader focus."
+    )
+
+
 def build_panel_prompt(
     panel: dict,
     chars_config: dict,
@@ -211,37 +223,35 @@ def build_page_prompt(
     layout_mode_auto = design_structure == "auto"
 
     if layout_mode_auto:
-        # ストーリービートとして渡し、AI が最適なコマ割りを判断
-        beats = []
+        # コマ数はユーザー指定を厳守。AI が判断するのは配置・サイズ・レイアウトのみ
+        panel_descs = []
         for ki, koma in enumerate(koma_list):
             scene = koma.get("scene", "")
             shot = koma.get("shot", "")
             action = koma.get("action", "")
             dialogues = koma.get("dialogue") or []
-            dial_str = " / ".join(
-                f"{char_map.get(d.get('character',''),{}).get('name_en',d.get('character',''))}: \"{d.get('text','')}\""
-                for d in dialogues if d.get("text", "").strip()
+            dial_lines = []
+            for d in dialogues:
+                text = d.get("text", "").strip()
+                if not text:
+                    continue
+                char = char_map.get(d.get("character", ""), {})
+                name_en = char.get("name_en", d.get("character", ""))
+                dial_lines.append(f'  - {name_en}: "{text}"')
+            dial_str = "\n".join(dial_lines) if dial_lines else "  (none)"
+            panel_descs.append(
+                f"**Panel {ki + 1}:**\n"
+                f"  Setting: {scene or '(as appropriate)'}\n"
+                f"  Camera/shot: {shot or '(as appropriate)'}\n"
+                f"  Action: {action or '(as appropriate)'}\n"
+                f"  Dialogue: oval bubbles with tails, VERTICAL Japanese text (tategaki):\n{dial_str}"
             )
-            beat_parts = [f"[Beat {ki + 1}]"]
-            if scene:
-                beat_parts.append(f"Setting: {scene}")
-            if shot:
-                beat_parts.append(f"Shot: {shot}")
-            if action:
-                beat_parts.append(f"Action: {action}")
-            if dial_str:
-                beat_parts.append(f"Dialogue: {dial_str}")
-            beats.append(" | ".join(beat_parts))
-        panel_section = "\n\n".join(beats)
-        content_label = (
-            "NARRATIVE CONTENT (adapt into panels as YOU see fit):\n"
-            "Analyze the story beats below. YOU decide: number of panels (2-6), their sizes "
-            "(close-up for emotion, wide for context, vary for impact), arrangement "
-            "(vertical, 2x2, mixed), reading order. Maximize storytelling. Then draw.\n\n"
-        )
+        panel_section = "\n\n".join(panel_descs)
+        content_label = f"PANEL CONTENT (draw EXACTLY {num_panels} panels - do NOT merge or reduce. Each panel below must appear):"
         layout = (
-            "LAYOUT (YOU DECIDE): Determine the optimal panel layout based on the narrative. "
-            "Vary panel sizes for dramatic effect. Use gutters and clear borders. "
+            f"LAYOUT: You MUST draw exactly {num_panels} panels. Do NOT merge panels or reduce the count.\n"
+            f"YOU decide: where to place each panel (placement), panel sizes (make emotionally intense panels LARGER - climax, punchline, revelation), "
+            "arrangement (2x2 grid, vertical stack, or mixed). Use gutters and clear borders. "
             "Draw ALL panels in ONE single image. Output MUST be one combined image, never separate."
         )
     else:
@@ -293,11 +303,13 @@ def build_page_prompt(
         "Focus lines and action lines for emotional/action scenes."
     )
     manga_production = _get_manga_production_block()
+    emotional_storytelling = _get_emotional_storytelling_block()
     parts = [
         "CRITICAL: Produce ONE single image containing multiple manga panels. Do NOT generate separate images.",
         "Draw a SINGLE manga page where ALL panels share the same canvas/frame.",
         "MOST IMPORTANT: Character consistency across ALL panels on this page.",
         manga_production,
+        emotional_storytelling,
         style_header.strip() if style_header else "",
         f"Page title/heading (draw prominently if present): {title}" if title else "",
         "CHARACTER DESCRIPTIONS (maintain exact appearance in every panel):",
