@@ -7,15 +7,12 @@ Gemini 3.1 Flash Image (Nano Banana 2) を使った漫画画像生成
 - characters.yaml: キャラ設定
 """
 
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 import yaml
 
 load_dotenv()
-
-MODEL_ID = "gemini-3.1-flash-image-preview"
 
 
 def load_config(config_dir: Path) -> tuple[dict, dict, dict]:
@@ -246,72 +243,6 @@ def build_page_prompt(
     return "\n".join(p for p in parts if p).strip()
 
 
-def generate_image(
-    prompt: str,
-    output_path: Path,
-    api_key: str | None = None,
-    aspect_ratio: str = "3:4",
-) -> bool:
-    """
-    Gemini 3.1 Flash Image (Nano Banana 2) で画像生成
-
-    google-genai の GenerateContentConfig + response_modalities を使用
-    """
-    api_key = api_key or os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY を .env または環境変数で設定してください")
-
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        raise ImportError("pip install google-genai を実行してください")
-
-    client = genai.Client(api_key=api_key)
-
-    config = types.GenerateContentConfig(
-        response_modalities=["IMAGE"],
-        image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
-    )
-
-    response = client.models.generate_content(
-        model=MODEL_ID,
-        contents=prompt,
-        config=config,
-    )
-
-    # レスポンスから画像を抽出して保存
-    parts = getattr(response, "parts", None)
-    if not parts and response.candidates:
-        parts = response.candidates[0].content.parts
-    parts = parts or []
-
-    for part in parts:
-        inline = getattr(part, "inline_data", None)
-        if not inline:
-            continue
-        # part.as_image() で PIL Image 相当を取得
-        if hasattr(part, "as_image"):
-            img = part.as_image()
-            if img is not None:
-                out_file = output_path.with_suffix(".png")
-                out_file.parent.mkdir(parents=True, exist_ok=True)
-                img.save(str(out_file))
-                print(f"  Saved: {out_file}")
-                return True
-        # fallback: inline_data.data から bytes で保存
-        data = getattr(inline, "data", None)
-        if data:
-            out_file = output_path.with_suffix(".png")
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            out_file.write_bytes(data)
-            print(f"  Saved: {out_file}")
-            return True
-
-    print("  Warning: No image in response. Check model availability (gemini-3.1-flash-image-preview).")
-    return False
-
-
 def _get_koma_list(panel: dict) -> list[dict]:
     """枚目からコマリストを取得。旧形式(scene/shot/action)の場合は1コマに変換"""
     koma = panel.get("koma") or []
@@ -342,35 +273,6 @@ def build_panel_prompt_with_koma(
         "dialogue": koma.get("dialogue") or [],
     }
     return build_panel_prompt(panel_for_prompt, chars_config, chars_in_panel, project_config)
-
-
-
-
-def run_all_flat(config_dir: Path, output_dir: Path) -> list[tuple[str, bool]]:
-    """全コマをフラット化して1コマ=1画像で生成。((label, success), ...) を返す"""
-    chars_config, project_config = load_config(config_dir)
-    panels = project_config.get("panels", [])
-    all_chars = chars_config.get("characters", [])
-    proj = project_config.get("project", {})
-    aspect = proj.get("aspect_ratio") or proj.get("canvas_ratio") or "3:4"
-    results = []
-    seq = 0
-    for panel in panels:
-        char_ids = panel.get("characters", [])
-        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
-        koma_list = _get_koma_list(panel)
-        page_num = panel.get("number", 0)
-        for k, koma in enumerate(koma_list):
-            seq += 1
-            label = f"{page_num}枚目・{k + 1}コマ目"
-            prompt = build_panel_prompt_with_koma(
-                panel, koma, chars_config, chars_in_panel, project_config
-            )
-            output_path = output_dir / f"panel_{seq:03d}"
-            print(f"Generating {label} -> panel_{seq:03d}.png ...")
-            ok = generate_image(prompt, output_path, aspect_ratio=aspect)
-            results.append((label, ok))
-    return results
 
 
 def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str:
@@ -412,34 +314,6 @@ def get_prompt_for_panel(
     return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
 
 
-def run_panel(
-    panel_number: int,
-    config_dir: Path,
-    output_dir: Path,
-) -> bool:
-    """指定コマ番号の画像を1枚生成"""
-    chars_config, project_config = load_config(config_dir)
-    panels = project_config.get("panels", [])
-    all_chars = chars_config.get("characters", [])
-
-    panel = next((p for p in panels if p.get("number") == panel_number), None)
-    if not panel:
-        print(f"Panel {panel_number} not found.")
-        return False
-
-    char_ids = panel.get("characters", [])
-    chars_in_panel = get_characters_for_panel(char_ids, all_chars)
-
-    prompt = build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
-    output_path = output_dir / f"panel_{panel_number:03d}"
-
-    proj = project_config.get("project", {})
-    aspect = proj.get("aspect_ratio") or proj.get("canvas_ratio") or "3:4"
-
-    print(f"Generating panel {panel_number}...")
-    return generate_image(prompt, output_path, aspect_ratio=aspect)
-
-
 def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str | None:
     """
     指定コマのプロンプトを取得する（API呼び出しなし）。
@@ -457,45 +331,6 @@ def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str | None:
     chars_in_panel = get_characters_for_panel(char_ids, all_chars)
 
     return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
-
-
-def _flatten_panels(panels: list[dict]) -> list[tuple[int, int, dict]]:
-    """枚目・コマをフラット化。(sequential_idx, page_num, koma_data) のリスト"""
-    result = []
-    for p in panels:
-        koma_list = p.get("koma") or []
-        if not koma_list and (p.get("scene") or p.get("shot") or p.get("action")):
-            koma_list = [{"scene": p.get("scene", ""), "shot": p.get("shot", ""), "action": p.get("action", "")}]
-        if not koma_list:
-            koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
-        for koma in koma_list:
-            result.append((len(result), p["number"], koma))
-    return result
-
-
-def run_all_flat(config_dir: Path, output_dir: Path) -> list[bool]:
-    """枚目・コマをフラット化して、各コマごとに1画像生成。Returns: [success, ...]"""
-    chars_config, project_config = load_config(config_dir)
-    panels = project_config.get("panels", [])
-    all_chars = chars_config.get("characters", [])
-    aspect = project_config.get("project", {}).get("aspect_ratio") or project_config.get("project", {}).get("canvas_ratio") or "3:4"
-
-    results = []
-    flat = _flatten_panels(panels)
-    for seq_idx, page_num, koma in flat:
-        panel = next((p for p in panels if p.get("number") == page_num), None)
-        if not panel:
-            results.append(False)
-            continue
-        char_ids = panel.get("characters", [])
-        chars_in_panel = get_characters_for_panel(char_ids, all_chars)
-        panel_with_koma = {**panel, "scene": koma.get("scene", ""), "shot": koma.get("shot", ""), "action": koma.get("action", "")}
-        prompt = build_panel_prompt(panel_with_koma, chars_config, chars_in_panel, project_config)
-        output_path = output_dir / f"panel_{seq_idx + 1:03d}"
-        print(f"Generating {page_num}枚目・{seq_idx + 1}番目...")
-        ok = generate_image(prompt, output_path, aspect_ratio=aspect)
-        results.append(ok)
-    return results
 
 
 def _flatten_panels(panels: list[dict]) -> list[tuple[str, dict, dict]]:
@@ -549,78 +384,13 @@ def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> lis
     return result
 
 
-def run_all_flat(config_dir: Path, output_dir: Path) -> list[bool]:
-    """
-    画像を生成。
-    - per_page: 1枚目ごとに1画像（複数コマを1枚に）
-    - per_koma: 各コマごとに1画像
-    """
-    chars_config, project_config = load_config(config_dir)
-    panels = project_config.get("panels", [])
-    all_chars = chars_config.get("characters", [])
-    proj = project_config.get("project", {})
-    aspect = proj.get("aspect_ratio") or proj.get("canvas_ratio") or "3:4"
-    mode = proj.get("output_mode", "per_koma")
-
-    if mode == "per_page":
-        results = []
-        for idx, p in enumerate(panels):
-            char_ids = p.get("characters", [])
-            chars_in = get_characters_for_panel(char_ids, all_chars)
-            prompt = build_page_prompt(p, chars_config, chars_in, project_config)
-            out_path = output_dir / f"panel_{idx + 1:03d}"
-            print(f"Generating {p.get('number', idx + 1)}枚目（全コマ1枚）...")
-            ok = generate_image(prompt, out_path, aspect_ratio=aspect)
-            results.append(ok)
-        return results
-
-    # per_koma
-    flat = _flatten_panels(panels)
-    results = []
-    for idx, (label, merged, _) in enumerate(flat):
-        char_ids = merged.get("characters", [])
-        chars_in = get_characters_for_panel(char_ids, all_chars)
-        prompt = build_panel_prompt(merged, chars_config, chars_in, project_config)
-        out_path = output_dir / f"panel_{idx + 1:03d}"
-        print(f"Generating {label}...")
-        ok = generate_image(prompt, out_path, aspect_ratio=aspect)
-        results.append(ok)
-    return results
-
-
-def run_all(config_dir: Path, output_dir: Path) -> None:
-    """全コマの画像を生成（project.yaml の panels に定義された分）"""
-    run_all_flat(config_dir, output_dir)
-
-
-def _run_all_legacy(config_dir: Path, output_dir: Path) -> None:
-    """旧形式（枚目=1画像）用。koma未対応の後方互換"""
-    _, project_config = load_config(config_dir)
-    panels = project_config.get("panels", [])
-    total = project_config.get("project", {}).get("total_panels")
-
-    if total is not None and len(panels) != total:
-        print(f"Note: total_panels={total} but {len(panels)} panels defined. Using defined panels.")
-
-    for panel in panels:
-        run_panel(panel["number"], config_dir, output_dir)
-
-
 def main():
+    """CLI: プロンプト表示のみ（API画像生成は削除済み）"""
     base = Path(__file__).resolve().parent.parent
     config_dir = base / "config"
-    output_dir = base / "output"
-
-    import sys
-    if len(sys.argv) > 1:
-        try:
-            num = int(sys.argv[1])
-            run_panel(num, config_dir, output_dir)
-        except ValueError:
-            print("Usage: python -m src.manga_generator [panel_number]")
-            print("  panel_number: 1-based. Omit to generate all panels.")
-    else:
-        run_all(config_dir, output_dir)
+    prompts = get_all_prompts_flat(config_dir)
+    for label, prompt_text in prompts:
+        print(f"\n{'='*50}\n【{label}】\n{'='*50}\n{prompt_text}")
 
 
 if __name__ == "__main__":
