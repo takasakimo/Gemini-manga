@@ -682,19 +682,21 @@ def render_manga_tab(options, characters, project_data):
     if st.session_state.get("panel_prompts"):
         st.divider()
         st.subheader("📋 プロンプト（Geminiに貼り付けてください）")
-        st.caption("各コマのプロンプトをコピーして、Gemini（Web/アプリ）に貼り付け、画像を生成してください。API費用はかかりません。")
-        for idx, (label, prompt_text) in enumerate(st.session_state["panel_prompts"]):
-            safe_name = label.replace("・", "_").replace("枚", "").replace("コマ", "k")
-            with st.expander(f"■ {label} のプロンプト", expanded=True):
-                st.caption("下の枠内を選択してコピー (Cmd+C / Ctrl+C)、またはダウンロードしてください")
-                st.code(prompt_text, language=None, line_numbers=False)
-                st.download_button(
-                    f"{label}_prompt.txt をダウンロード",
-                    data=prompt_text,
-                    file_name=f"{safe_name}_prompt.txt",
-                    mime="text/plain",
-                    key=f"prompt_dl_{idx}",
-                )
+        st.caption("下の枠内を全選択（Cmd+A / Ctrl+A）→ コピー（Cmd+C / Ctrl+C）で一気にコピペできます。API費用はかかりません。")
+        # 全プロンプトを1つに結合（枚・コマごとに区切りを入れる）
+        separator = "\n\n" + "=" * 50 + "\n"
+        all_prompts_text = separator.join(
+            f"【{label}】\n{prompt_text}"
+            for label, prompt_text in st.session_state["panel_prompts"]
+        )
+        st.code(all_prompts_text, language=None, line_numbers=False)
+        st.download_button(
+            "📥 全プロンプトを一括ダウンロード (.txt)",
+            data=all_prompts_text,
+            file_name="all_prompts.txt",
+            mime="text/plain",
+            key="prompt_dl_all",
+        )
 
     # --- 生成済み画像のプレビュー & 保存（同じ画面で表示） ---
     st.divider()
