@@ -387,78 +387,26 @@ def render_manga_tab(options, characters, project_data):
                 char_id = main_char_raw.split("(")[-1].rstrip(")")
                 main_chars = [char_id]
 
-            st.markdown("**セリフ（複数可）**")
-            dialogue_rows = []
-            # session_state で「追加」した行数を持ち越す。保存後は existing から再初期化
-            base_count = max(len(existing_dialogue), 1)
-            num_dialogue = st.session_state.get(f"dialogue_count_{i}", base_count)
-            for d_idx in range(num_dialogue):
-                ex = existing_dialogue[d_idx] if d_idx < len(existing_dialogue) else {}
-                ex_char = ex.get("character", "")
-                ex_text = ex.get("text", "")
-                d_char_idx = 0
-                if ex_char:
-                    for j, c in enumerate(characters):
-                        if c["id"] == ex_char:
-                            d_char_idx = j + 1
-                            break
-                col_c, col_t = st.columns([1, 3])
-                with col_c:
-                    d_char = st.selectbox(
-                        f"セリフ{d_idx + 1} キャラ",
-                        char_choices,
-                        index=d_char_idx,
-                        key=f"d_char_{i}_{d_idx}",
-                    )
-                with col_t:
-                    d_text = st.text_input(
-                        f"セリフ{d_idx + 1} 内容",
-                        value=ex_text,
-                        placeholder="例: おはよう！今日も頑張ろうね",
-                        key=f"d_text_{i}_{d_idx}",
-                    )
-                dialogue_rows.append({"char_sel": d_char, "text": d_text})
-
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                if st.button(f"➕ セリフを追加", key=f"add_dialogue_{i}"):
-                    st.session_state[f"dialogue_count_{i}"] = num_dialogue + 1
-                    st.rerun()
-            with btn_col2:
-                if num_dialogue > 1 and st.button(f"➖ 最後のセリフを削除", key=f"rem_dialogue_{i}"):
-                    st.session_state[f"dialogue_count_{i}"] = num_dialogue - 1
-                    st.rerun()
-
-            # セリフから登場キャラを収集
-            char_ids_in_dialogue = set()
-            dialogue_list = []
-            for dr in dialogue_rows:
-                if dr["char_sel"] and dr["char_sel"] != "入れない(背景・世界観のみ)":
-                    cid = dr["char_sel"].split("(")[-1].rstrip(")")
-                    char_ids_in_dialogue.add(cid)
-                if dr["text"]:
-                    cid = dr["char_sel"].split("(")[-1].rstrip(")") if dr["char_sel"] != "入れない(背景・世界観のみ)" else None
-                    if cid:
-                        dialogue_list.append({"character": cid, "text": dr["text"]})
-            if not main_chars and char_ids_in_dialogue:
-                main_chars = list(char_ids_in_dialogue)
-            elif main_chars and char_ids_in_dialogue:
-                main_chars = list(set(main_chars) | char_ids_in_dialogue)
-            if not dialogue_list and main_chars and dialogue_rows and dialogue_rows[0]["text"]:
-                cid = dialogue_rows[0]["char_sel"].split("(")[-1].rstrip(")") if dialogue_rows[0]["char_sel"] != "入れない(背景・世界観のみ)" else main_chars[0]
-                dialogue_list = [{"character": cid, "text": dialogue_rows[0]["text"]}]
-
-            # コマ（一コマ目・二コマ目…）の入れ子構造
+            # コマ（一コマ目・二コマ目…）の入れ子構造。各コマにセリフを紐づけ
             existing_koma = existing.get("koma") or []
             if not existing_koma and (existing.get("scene") or existing.get("shot") or existing.get("action")):
-                existing_koma = [{"scene": existing.get("scene", ""), "shot": existing.get("shot", ""), "action": existing.get("action", "")}]
+                ex_d = existing.get("dialogue") or []
+                first_d = [{"scene": existing.get("scene", ""), "shot": existing.get("shot", ""), "action": existing.get("action", ""), "dialogue": ex_d[:1] if ex_d else []}]
+                if len(ex_d) > 1:
+                    first_d += [{"scene": "", "shot": "", "action": "", "dialogue": [ex_d[j]]} for j in range(1, len(ex_d))]
+                existing_koma = first_d
             if not existing_koma:
-                existing_koma = [{"scene": "", "shot": "", "action": ""}]
+                existing_koma = [{"scene": "", "shot": "", "action": "", "dialogue": []}]
+            for ek in existing_koma:
+                if "dialogue" not in ek:
+                    ek["dialogue"] = []
 
             num_koma = st.session_state.get(f"koma_count_{i}", len(existing_koma))
             koma_list = []
+            all_char_ids = set(main_chars) if main_chars else set()
             for k in range(num_koma):
-                ex_k = existing_koma[k] if k < len(existing_koma) else {"scene": "", "shot": "", "action": ""}
+                ex_k = existing_koma[k] if k < len(existing_koma) else {"scene": "", "shot": "", "action": "", "dialogue": []}
+                ex_d = ex_k.get("dialogue") or []
                 with st.expander(f"□ {k + 1}コマ目", expanded=(num_koma <= 2)):
                     scene_k = st.text_input(
                         f"{k + 1}コマ目 場面・背景",
@@ -478,11 +426,49 @@ def render_manga_tab(options, characters, project_data):
                         placeholder="例: 手を挙げて笑顔で挨拶。",
                         key=f"action_{i}_{k}",
                     )
+                    st.caption("このコマのセリフ（複数可）")
+                    num_d = st.session_state.get(f"dialogue_count_{i}_{k}", max(len(ex_d), 1))
+                    d_rows = []
+                    for d_idx in range(num_d):
+                        ed = ex_d[d_idx] if d_idx < len(ex_d) else {}
+                        dc_idx = 0
+                        if ed.get("character"):
+                            for j, c in enumerate(characters):
+                                if c["id"] == ed["character"]:
+                                    dc_idx = j + 1
+                                    break
+                        col_c, col_t = st.columns([1, 3])
+                        with col_c:
+                            dc = st.selectbox(f"キャラ", char_choices, index=dc_idx, key=f"d_char_{i}_{k}_{d_idx}")
+                        with col_t:
+                            dt = st.text_input(f"セリフ", value=ed.get("text", ""), placeholder="例: おはよう！", key=f"d_text_{i}_{k}_{d_idx}")
+                        d_rows.append({"char_sel": dc, "text": dt})
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button(f"➕ セリフ追加", key=f"add_d_{i}_{k}"):
+                            st.session_state[f"dialogue_count_{i}_{k}"] = num_d + 1
+                            st.rerun()
+                    with c2:
+                        if num_d > 1 and st.button(f"➖ セリフ削除", key=f"rem_d_{i}_{k}"):
+                            st.session_state[f"dialogue_count_{i}_{k}"] = num_d - 1
+                            st.rerun()
+                    d_list = []
+                    for dr in d_rows:
+                        if dr["char_sel"] and dr["char_sel"] != "入れない(背景・世界観のみ)" and dr["text"]:
+                            cid = dr["char_sel"].split("(")[-1].rstrip(")")
+                            d_list.append({"character": cid, "text": dr["text"]})
+                            all_char_ids.add(cid)
                     koma_list.append({
                         "scene": scene_k or "（未設定）",
                         "shot": shot_k or "（適切な構図）",
-                        "action": action_k or (dialogue_list[k]["text"] if k < len(dialogue_list) else "（未設定）"),
+                        "action": action_k or (d_list[0]["text"] if d_list else "（未設定）"),
+                        "dialogue": d_list,
                     })
+
+            if all_char_ids and not main_chars:
+                main_chars = list(all_char_ids)
+            elif all_char_ids:
+                main_chars = list(set(main_chars) | all_char_ids)
 
             btn_k1, btn_k2 = st.columns(2)
             with btn_k1:
@@ -494,14 +480,18 @@ def render_manga_tab(options, characters, project_data):
                     st.session_state[f"koma_count_{i}"] = num_koma - 1
                     st.rerun()
 
-            first_text = dialogue_list[0]["text"] if dialogue_list else ""
+            first_text = ""
+            for km in koma_list:
+                d = km.get("dialogue") or []
+                if d:
+                    first_text = d[0]["text"]
+                    break
             panels.append({
                 "number": i + 1,
                 "title": title,
                 "text": first_text,
                 "characters": main_chars,
                 "koma": koma_list,
-                "dialogue": dialogue_list,
             })
 
     st.divider()

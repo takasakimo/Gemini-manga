@@ -210,9 +210,13 @@ def _get_koma_list(panel: dict) -> list[dict]:
     """枚目からコマリストを取得。旧形式(scene/shot/action)の場合は1コマに変換"""
     koma = panel.get("koma") or []
     if not koma and (panel.get("scene") or panel.get("shot") or panel.get("action")):
-        koma = [{"scene": panel.get("scene", ""), "shot": panel.get("shot", ""), "action": panel.get("action", "")}]
+        ex_d = panel.get("dialogue") or []
+        koma = [{"scene": panel.get("scene", ""), "shot": panel.get("shot", ""), "action": panel.get("action", ""), "dialogue": ex_d}]
     if not koma:
-        koma = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+        koma = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）", "dialogue": []}]
+    for k in koma:
+        if "dialogue" not in k:
+            k["dialogue"] = []
     return koma
 
 
@@ -222,18 +226,15 @@ def build_panel_prompt_with_koma(
     chars_config: dict,
     chars_in_panel: list[dict],
     project_config: dict | None,
-    dialogue_index: int = 0,
 ) -> str:
-    """コマ単位でプロンプトを構築。dialogue_index でセリフを割り当て"""
+    """コマ単位でプロンプトを構築。koma.dialogue を使用（コマに紐づいたセリフ）"""
     panel_for_prompt = {
         **panel,
         "scene": koma.get("scene", ""),
         "shot": koma.get("shot", ""),
         "action": koma.get("action", ""),
+        "dialogue": koma.get("dialogue") or [],
     }
-    dialogues = panel.get("dialogue") or []
-    if dialogue_index < len(dialogues):
-        panel_for_prompt = {**panel_for_prompt, "dialogue": [dialogues[dialogue_index]]}
     return build_panel_prompt(panel_for_prompt, chars_config, chars_in_panel, project_config)
 
 
@@ -251,7 +252,7 @@ def get_all_prompts_flat(config_dir: Path) -> list[tuple[str, str]]:
         for k, koma in enumerate(koma_list):
             label = f"{page_num}枚目・{k + 1}コマ目"
             prompt = build_panel_prompt_with_koma(
-                panel, koma, chars_config, chars_in_panel, project_config, dialogue_index=k
+                panel, koma, chars_config, chars_in_panel, project_config
             )
             result.append((label, prompt))
     return result
@@ -275,7 +276,7 @@ def run_all_flat(config_dir: Path, output_dir: Path) -> list[tuple[str, bool]]:
             seq += 1
             label = f"{page_num}枚目・{k + 1}コマ目"
             prompt = build_panel_prompt_with_koma(
-                panel, koma, chars_config, chars_in_panel, project_config, dialogue_index=k
+                panel, koma, chars_config, chars_in_panel, project_config
             )
             output_path = output_dir / f"panel_{seq:03d}"
             print(f"Generating {label} -> panel_{seq:03d}.png ...")
@@ -439,12 +440,15 @@ def _flatten_panels(panels: list[dict]) -> list[tuple[str, dict, dict]]:
     for p in panels:
         koma_list = p.get("koma") or []
         if not koma_list and (p.get("scene") or p.get("shot") or p.get("action")):
-            koma_list = [{"scene": p.get("scene", ""), "shot": p.get("shot", ""), "action": p.get("action", "")}]
+            ex_d = p.get("dialogue") or []
+            koma_list = [{"scene": p.get("scene", ""), "shot": p.get("shot", ""), "action": p.get("action", ""), "dialogue": ex_d}]
         if not koma_list:
-            koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）"}]
+            koma_list = [{"scene": "（未設定）", "shot": "（適切な構図）", "action": "（未設定）", "dialogue": []}]
         for ki, koma in enumerate(koma_list):
+            if "dialogue" not in koma:
+                koma["dialogue"] = []
             label = f"{p['number']}枚目・{ki + 1}コマ目"
-            merged = {**p, "scene": koma.get("scene", ""), "shot": koma.get("shot", ""), "action": koma.get("action", "")}
+            merged = {**p, "scene": koma.get("scene", ""), "shot": koma.get("shot", ""), "action": koma.get("action", ""), "dialogue": koma.get("dialogue") or []}
             result.append((label, merged, koma))
     return result
 
