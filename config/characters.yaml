@@ -1,25 +1,23 @@
 series:
   title: サンプル漫画
-  art_style: 'Japanese manga style, like professional manga generation app output:
+  art_style: 'Professional Japanese manga style (本格漫画・出版品質):
 
-    - Clean, crisp black ink line art, consistent line weight
-
-    - Screentone (halftone) shading for shadows and depth
-
-    - Gray scale tones (black, grays, white), no flat color unless specified
-
-    - Single manga panel composition, publication-ready quality
-
-    - Clear speech bubbles with readable Japanese text when dialogue is given
-
-    - Anime/manga character design, expressive faces, proper proportions
-
+    - Black and white: Clean black ink line art, consistent line weight, no colors
+    - Screentone: Halftone dot patterns for shading (clothing, hair, shadows, backgrounds). Use varying dot density for depth
+    - Hatching: Fine line-hatching for darker shadows when appropriate
+    - Speech bubbles: Oval bubbles with tail pointing to speaker. Text must be VERTICAL (縦書き・tategaki) Japanese
+    - Thought bubbles: Oval with radiating cloud-like border for inner monologue (内心・心の声)
+    - Onomatopoeia: Draw stylized Japanese sound effects (擬音語) as graphic elements IN the scene (e.g. コツ ザッ ドキ) - integrated into artwork, not plain text
+    - Visual cues: Focus lines (集中線), action lines (効果線), speed lines for movement; blush lines (照れ), sweat drop (汗) for emotions
+    - Gutters: Clear white space between panels. Varied panel sizes for dynamic reading flow
+    - Character design: Anime/manga style, expressive faces, proper proportions, consistent across panels
+    - Publication quality: Like Weekly Shounen Jump, tankobon manga magazines
     '
-  style_negative: 'Avoid: photorealistic, 3D render, changing line style between panels,
+  style_negative: 'Avoid: photorealistic, 3D render, smooth gradients, Western comic style,
 
-    inconsistent shading, different color palette, Western comic style,
+    horizontal text in bubbles, flat coloring, inconsistent screentone,
 
-    blurry text, messy line work
+    blurry text, messy line work, changing art style between panels
 
     '
 characters:

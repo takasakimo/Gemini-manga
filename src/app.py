@@ -584,7 +584,7 @@ def render_manga_tab(options, characters, project_data):
             "図解・構図の構造",
             range(len(design_labels)),
             format_func=lambda i: design_labels[i],
-            index=min(design_key_idx.get(proj.get("design_structure", "standard"), 0), len(design_labels) - 1),
+            index=min(design_key_idx.get(proj.get("design_structure", "auto"), 0), len(design_labels) - 1),
         )
         design_key = design_opts[design_sel][0]
         design_label = design_opts[design_sel][1]

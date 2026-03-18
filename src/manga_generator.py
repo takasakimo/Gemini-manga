@@ -38,7 +38,7 @@ def build_character_prompts(characters: list[dict]) -> str:
 
 
 def build_dialogue_section(panel: dict, char_map: dict[str, dict]) -> str:
-    """セリフをプロンプト用に整形。フキダシ描画の指示を付ける"""
+    """セリフをプロンプト用に整形。本物漫画風のフキダシ・縦書き指示を付ける"""
     dialogues = panel.get("dialogue") or []
     if not dialogues:
         return ""
@@ -50,10 +50,17 @@ def build_dialogue_section(panel: dict, char_map: dict[str, dict]) -> str:
             continue
         char = char_map.get(char_id, {})
         name_en = char.get("name_en", char_id)
-        lines.append(f"- Speech bubble for {name_en}: \"{text}\"")
+        lines.append(f"- Oval speech bubble with tail pointing to {name_en}, VERTICAL Japanese text (tategaki): \"{text}\"")
     if not lines:
         return ""
-    return "Dialogue (draw as manga speech bubbles, Japanese text):\n" + "\n".join(lines)
+    return (
+        "DIALOGUE (authentic Japanese manga style):\n"
+        "- Oval speech bubbles with tails pointing to the speaker.\n"
+        "- Draw ALL dialogue text in VERTICAL orientation (tategaki, right-to-left columns) as in real manga.\n"
+        "- Clear gutters (white space) between panels. Clean black panel borders.\n"
+        "- Add onomatopoeia if appropriate (e.g. コツ for footsteps, ザッ for steps, ドキ for heartbeat).\n"
+        + "\n".join(lines)
+    )
 
 
 def load_prompt_hints(config_dir: Path) -> dict:
@@ -63,6 +70,17 @@ def load_prompt_hints(config_dir: Path) -> dict:
         return {}
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _get_manga_production_block() -> str:
+    """本物漫画風の描画指示ブロック。プロンプト先頭で強く指定"""
+    return (
+        "MANGA PRODUCTION (authentic Japanese manga): "
+        "Black-and-white, screentone (halftone dots) for shading. "
+        "Oval speech bubbles with tails, VERTICAL Japanese text (tategaki). "
+        "Onomatopoeia as graphic elements. Gutters between panels. "
+        "Focus lines, action lines for drama."
+    )
 
 
 def build_panel_prompt(
@@ -96,7 +114,7 @@ def build_panel_prompt(
         proj = project_config.get("project", {})
         usage = proj.get("usage", "standard_manga")
         art_taste = proj.get("art_taste", "standard")
-        design_structure = proj.get("design_structure", "standard")
+        design_structure = proj.get("design_structure", "auto")
         genre = proj.get("genre", "none")
         if hints_data:
             usage_hints = hints_data.get("usage", {})
@@ -117,6 +135,11 @@ def build_panel_prompt(
     if project_hints:
         style_header = "STYLE REQUIREMENTS (must follow): " + " | ".join(project_hints) + "\n\n"
 
+    manga_techniques = (
+        "MANGA TECHNIQUES: Use screentone (halftone dot patterns) for shading. "
+        "Add focus lines or speed lines for emphasis when appropriate. "
+        "Action lines for movement. Subtle effects: blush lines, sweat drops for emotion."
+    )
     parts = [
         "MOST IMPORTANT: Character consistency across the entire manga panel.",
         style_header.strip() if style_header else "",
@@ -128,6 +151,8 @@ def build_panel_prompt(
         f"Setting: {scene}",
         f"Camera/shot: {shot}" if shot else "",
         f"Action & expression: {action}",
+        "",
+        manga_techniques,
         "",
         dialogue_section,
         "",
@@ -155,6 +180,8 @@ def build_page_prompt(
 
     koma_list = _get_koma_list(panel)
     num_panels = len(koma_list)
+    proj = (project_config or {}).get("project", {})
+    design_structure = proj.get("design_structure", "auto")
 
     # project hints
     project_hints = []
@@ -164,7 +191,7 @@ def build_page_prompt(
         proj = project_config.get("project", {})
         usage = proj.get("usage", "standard_manga")
         art_taste = proj.get("art_taste", "standard")
-        design_structure = proj.get("design_structure", "standard")
+        design_structure = proj.get("design_structure", "auto")
         genre = proj.get("genre", "none")
         if hints_data:
             if usage in hints_data.get("usage", {}):
@@ -180,60 +207,107 @@ def build_page_prompt(
     if project_hints:
         style_header = "STYLE REQUIREMENTS (must follow): " + " | ".join(project_hints) + "\n\n"
 
-    panel_descs = []
-    for ki, koma in enumerate(koma_list):
-        scene = koma.get("scene", "")
-        shot = koma.get("shot", "")
-        action = koma.get("action", "")
-        dialogues = koma.get("dialogue") or []
-        dial_lines = []
-        for d in dialogues:
-            text = d.get("text", "").strip()
-            if not text:
-                continue
-            char = char_map.get(d.get("character", ""), {})
-            name_en = char.get("name_en", d.get("character", ""))
-            dial_lines.append(f'  - {name_en}: "{text}"')
-        dial_str = "\n".join(dial_lines) if dial_lines else "  (none)"
-        panel_descs.append(
-            f"**Panel {ki + 1}:**\n"
-            f"  Setting: {scene or '(as appropriate)'}\n"
-            f"  Camera/shot: {shot or '(as appropriate)'}\n"
-            f"  Action: {action or '(as appropriate)'}\n"
-            f"  Dialogue (manga speech bubbles, Japanese text):\n{dial_str}"
-        )
+    # design_structure が auto のときは AI にコマ割りを判断させる
+    layout_mode_auto = design_structure == "auto"
 
-    panel_section = "\n\n".join(panel_descs)
-
-    # 1〜4コマを1枚の画像にまとめるレイアウト指示
-    if num_panels == 4:
-        layout = (
-            "LAYOUT: Draw ALL 4 panels in ONE single image. "
-            "Use a 2x2 grid (four equal panels in 2 rows × 2 columns) "
-            "with clear panel borders. This is a FOUR-PANEL MANGA format (yonkoma). "
-            "Output MUST be a single combined image, never separate images."
+    if layout_mode_auto:
+        # ストーリービートとして渡し、AI が最適なコマ割りを判断
+        beats = []
+        for ki, koma in enumerate(koma_list):
+            scene = koma.get("scene", "")
+            shot = koma.get("shot", "")
+            action = koma.get("action", "")
+            dialogues = koma.get("dialogue") or []
+            dial_str = " / ".join(
+                f"{char_map.get(d.get('character',''),{}).get('name_en',d.get('character',''))}: \"{d.get('text','')}\""
+                for d in dialogues if d.get("text", "").strip()
+            )
+            beat_parts = [f"[Beat {ki + 1}]"]
+            if scene:
+                beat_parts.append(f"Setting: {scene}")
+            if shot:
+                beat_parts.append(f"Shot: {shot}")
+            if action:
+                beat_parts.append(f"Action: {action}")
+            if dial_str:
+                beat_parts.append(f"Dialogue: {dial_str}")
+            beats.append(" | ".join(beat_parts))
+        panel_section = "\n\n".join(beats)
+        content_label = (
+            "NARRATIVE CONTENT (adapt into panels as YOU see fit):\n"
+            "Analyze the story beats below. YOU decide: number of panels (2-6), their sizes "
+            "(close-up for emotion, wide for context, vary for impact), arrangement "
+            "(vertical, 2x2, mixed), reading order. Maximize storytelling. Then draw.\n\n"
         )
-    elif num_panels >= 2:
         layout = (
-            f"LAYOUT: Draw ALL {num_panels} panels in ONE single image. "
-            "Arrange panels vertically (top to bottom) with clear borders between each. "
-            "Output MUST be a single combined image containing all panels, never separate images."
+            "LAYOUT (YOU DECIDE): Determine the optimal panel layout based on the narrative. "
+            "Vary panel sizes for dramatic effect. Use gutters and clear borders. "
+            "Draw ALL panels in ONE single image. Output MUST be one combined image, never separate."
         )
     else:
-        layout = f"LAYOUT: Single panel. Output as one image."
+        # 固定レイアウト
+        panel_descs = []
+        for ki, koma in enumerate(koma_list):
+            scene = koma.get("scene", "")
+            shot = koma.get("shot", "")
+            action = koma.get("action", "")
+            dialogues = koma.get("dialogue") or []
+            dial_lines = []
+            for d in dialogues:
+                text = d.get("text", "").strip()
+                if not text:
+                    continue
+                char = char_map.get(d.get("character", ""), {})
+                name_en = char.get("name_en", d.get("character", ""))
+                dial_lines.append(f'  - {name_en}: "{text}"')
+            dial_str = "\n".join(dial_lines) if dial_lines else "  (none)"
+            panel_descs.append(
+                f"**Panel {ki + 1}:**\n"
+                f"  Setting: {scene or '(as appropriate)'}\n"
+                f"  Camera/shot: {shot or '(as appropriate)'}\n"
+                f"  Action: {action or '(as appropriate)'}\n"
+                f"  Dialogue: oval bubbles with tails, VERTICAL Japanese text (tategaki):\n{dial_str}"
+            )
+        panel_section = "\n\n".join(panel_descs)
+        content_label = "PANEL CONTENT (draw each panel as described, all within the same image):"
+        if num_panels == 4:
+            layout = (
+                "LAYOUT: Draw ALL 4 panels in ONE single image. "
+                "Use a 2x2 grid (four equal panels in 2 rows × 2 columns) "
+                "with clear panel borders. This is a FOUR-PANEL MANGA format (yonkoma). "
+                "Output MUST be a single combined image, never separate images."
+            )
+        elif num_panels >= 2:
+            layout = (
+                f"LAYOUT: Draw ALL {num_panels} panels in ONE single image. "
+                "Arrange panels vertically (top to bottom) with clear borders between each. "
+                "Output MUST be a single combined image containing all panels, never separate images."
+            )
+        else:
+            layout = f"LAYOUT: Single panel. Output as one image."
 
+    manga_page_style = (
+        "MANGA PAGE STYLE: Clean white gutters between panels. Black panel borders. "
+        "Screentone (halftone dots) for shading. Oval speech bubbles with tails, vertical Japanese text. "
+        "Add onomatopoeia as graphic elements when fitting (e.g. コツ ザッ ドキ). "
+        "Focus lines and action lines for emotional/action scenes."
+    )
+    manga_production = _get_manga_production_block()
     parts = [
         "CRITICAL: Produce ONE single image containing multiple manga panels. Do NOT generate separate images.",
         "Draw a SINGLE manga page where ALL panels share the same canvas/frame.",
         "MOST IMPORTANT: Character consistency across ALL panels on this page.",
+        manga_production,
         style_header.strip() if style_header else "",
         f"Page title/heading (draw prominently if present): {title}" if title else "",
         "CHARACTER DESCRIPTIONS (maintain exact appearance in every panel):",
         char_prompts,
         "",
+        manga_page_style,
+        "",
         layout,
         "",
-        "PANEL CONTENT (draw each panel as described, all within the same image):",
+        content_label if layout_mode_auto else "PANEL CONTENT (draw each panel as described, all within the same image):",
         "",
         panel_section,
         "",
