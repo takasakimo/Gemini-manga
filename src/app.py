@@ -515,7 +515,7 @@ def render_manga_tab(options, characters, project_data):
     st.divider()
 
     # --- 保存 & 生成 ---
-    col_save, col_gen, _ = st.columns([1, 1, 2])
+    col_save, col_gen, col_prompt, _ = st.columns([1, 1, 1, 1])
 
     with col_save:
         if st.button("💾 設定を保存", use_container_width=True):
@@ -599,6 +599,62 @@ def render_manga_tab(options, characters, project_data):
             progress.progress(1.0)
             status.text("完了")
             st.balloons()
+
+    with col_prompt:
+        if st.button("📋 プロンプトをコピー（API不要）", use_container_width=True):
+            # 保存してからプロンプトを生成
+            project = project_data.get("project", {})
+            project["usage"] = usage_key
+            project["canvas_ratio"] = canvas_key
+            project["aspect_ratio"] = canvas_key
+            project["canvas_ratio_label"] = canvas_label
+            project["total_panels"] = total_panels
+            project["genre"] = genre_key
+            project["genre_label"] = genre_label
+            project["design_structure"] = design_key
+            project["design_structure_label"] = design_label
+            project["art_taste"] = taste_key
+            project["art_taste_label"] = taste_label
+            new_panels = []
+            for p in panels:
+                d = {"number": p["number"], "characters": p["characters"], "dialogue": p.get("dialogue", [])}
+                if p["title"]:
+                    d["title"] = p["title"]
+                if p["text"]:
+                    d["text"] = p["text"]
+                d["scene"] = p.get("scene") or "（未設定）"
+                d["shot"] = p.get("shot") or "（適切な構図）"
+                d["action"] = p.get("action") or p["text"] or "（未設定）"
+                new_panels.append(d)
+            save_project({"project": project, "panels": new_panels})
+            try:
+                from src.manga_generator import get_prompt_for_panel
+            except ImportError:
+                from manga_generator import get_prompt_for_panel
+            prompts = []
+            for p in new_panels:
+                txt = get_prompt_for_panel(p["number"], CONFIG_DIR)
+                if txt:
+                    prompts.append((p["number"], txt))
+            st.session_state["panel_prompts"] = prompts
+            st.rerun()
+
+    # プロンプト表示エリア（コピー用）
+    if st.session_state.get("panel_prompts"):
+        st.divider()
+        st.subheader("📋 プロンプト（Geminiに貼り付けてください）")
+        st.caption("各コマのプロンプトをコピーして、Gemini（Web/アプリ）に貼り付け、画像を生成してください。API費用はかかりません。")
+        for num, prompt_text in st.session_state["panel_prompts"]:
+            with st.expander(f"■ {num}枚目のプロンプト", expanded=True):
+                st.caption("下の枠内を選択してコピー (Cmd+C / Ctrl+C)、またはダウンロードしてください")
+                st.code(prompt_text, language=None, line_numbers=False)
+                st.download_button(
+                    f"panel_{num:03d}_prompt.txt をダウンロード",
+                    data=prompt_text,
+                    file_name=f"panel_{num:03d}_prompt.txt",
+                    mime="text/plain",
+                    key=f"prompt_dl_{num}",
+                )
 
     # --- 生成済み画像のプレビュー & 保存（同じ画面で表示） ---
     st.divider()

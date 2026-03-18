@@ -206,6 +206,63 @@ def generate_image(
     return False
 
 
+def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str | None:
+    """
+    指定コマのプロンプト文字列を取得する（APIは呼ばない）。
+    コピー用・Geminiに貼り付け用。
+    """
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+
+    panel = next((p for p in panels if p.get("number") == panel_number), None)
+    if not panel:
+        return None
+
+    char_ids = panel.get("characters", [])
+    chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+    return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
+
+
+def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str:
+    """
+    指定コマのプロンプト文字列のみ取得（API呼び出しなし）。
+    project.yaml と characters.yaml から構築する。
+    """
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+
+    panel = next((p for p in panels if p.get("number") == panel_number), None)
+    if not panel:
+        return ""
+
+    char_ids = panel.get("characters", [])
+    chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+    return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
+
+
+def get_prompt_for_panel(
+    panel_number: int,
+    config_dir: Path,
+) -> str:
+    """
+    指定コマのプロンプト文字列を返す（API呼び出しなし）。
+    Gemini ブラウザ等に貼り付けて手動で画像生成する際に利用。
+    """
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+
+    panel = next((p for p in panels if p.get("number") == panel_number), None)
+    if not panel:
+        return ""
+
+    char_ids = panel.get("characters", [])
+    chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+    return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
+
+
 def run_panel(
     panel_number: int,
     config_dir: Path,
@@ -232,6 +289,25 @@ def run_panel(
 
     print(f"Generating panel {panel_number}...")
     return generate_image(prompt, output_path, aspect_ratio=aspect)
+
+
+def get_prompt_for_panel(panel_number: int, config_dir: Path) -> str | None:
+    """
+    指定コマのプロンプトを取得する（API呼び出しなし）。
+    Gemini に貼り付けて手動で画像生成する際に使用。
+    """
+    chars_config, project_config = load_config(config_dir)
+    panels = project_config.get("panels", [])
+    all_chars = chars_config.get("characters", [])
+
+    panel = next((p for p in panels if p.get("number") == panel_number), None)
+    if not panel:
+        return None
+
+    char_ids = panel.get("characters", [])
+    chars_in_panel = get_characters_for_panel(char_ids, all_chars)
+
+    return build_panel_prompt(panel, chars_config, chars_in_panel, project_config)
 
 
 def run_all(config_dir: Path, output_dir: Path) -> None:
