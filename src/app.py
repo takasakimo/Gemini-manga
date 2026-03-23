@@ -341,11 +341,15 @@ def main():
     st.title("📖 Gemini 漫画生成")
     st.caption("Nano Banana 2 (Gemini 3.1 Flash Image) で一貫性のある漫画を生成")
 
-    tab_manga, tab_chars, tab_gallery = st.tabs([
+    tab_auto, tab_manga, tab_chars, tab_gallery = st.tabs([
+        "🤖 フルオート",
         "📄 漫画生成",
         "👤 キャラクター設定",
         "🖼 生成済み画像",
     ])
+
+    with tab_auto:
+        render_auto_tab(options, project_data, characters)
 
     with tab_manga:
         render_manga_tab(options, characters, project_data)
@@ -355,6 +359,93 @@ def main():
 
     with tab_gallery:
         render_gallery_tab()
+
+
+def render_auto_tab(options, project_data, characters):
+    """フルオートタブ：テーマだけ決めればコマ割り・セリフ・キャラを一括自動生成"""
+    st.header("🤖 テーマから漫画を自動生成")
+    st.caption("テーマを入力するだけで、キャラクター・コマ割り・セリフをAIが一括生成します。生成後は「漫画生成」タブでプロンプトをコピーして画像化できます。")
+
+    theme = st.text_area(
+        "漫画のテーマ・あらすじ",
+        placeholder="例: 転校初日、教室で自己紹介中にスマホが鳴り響いて大恥をかく女子高生の話\n例: 新商品の営業プレゼンで失敗しそうになる社会人の奮闘",
+        height=100,
+        key="auto_theme",
+    )
+
+    col1, col2, col3 = st.columns(3)
+    usage_opts = options.get("usage") or [["standard_manga", "標準漫画"]]
+    genre_opts = options.get("genre") or [["none", "指定なし"]]
+    art_opts = options.get("art_taste") or [["standard", "スタンダード"]]
+    design_opts = options.get("design_structure") or [["auto", "AIにおまかせ"]]
+    with col1:
+        usage_idx = st.selectbox(
+            "用途",
+            range(len(usage_opts)),
+            format_func=lambda i: usage_opts[i][1],
+            key="auto_usage",
+        )
+        usage_key = usage_opts[usage_idx][0]
+    with col2:
+        genre_idx = st.selectbox(
+            "ジャンル・世界観",
+            range(len(genre_opts)),
+            format_func=lambda i: genre_opts[i][1],
+            key="auto_genre",
+        )
+        genre_key = genre_opts[genre_idx][0]
+    with col3:
+        total_panels = st.number_input("枚数", min_value=1, max_value=10, value=3, key="auto_panels")
+
+    with col1:
+        art_idx = st.selectbox(
+            "画風",
+            range(len(art_opts)),
+            format_func=lambda i: art_opts[i][1],
+            key="auto_art",
+        )
+        art_key = art_opts[art_idx][0]
+    with col2:
+        design_idx = st.selectbox(
+            "コマ割り",
+            range(len(design_opts)),
+            format_func=lambda i: design_opts[i][1],
+            key="auto_design",
+        )
+        design_key = design_opts[design_idx][0]
+
+    if st.button("✨ 漫画を自動生成", type="primary", use_container_width=True, key="auto_btn"):
+        if not theme or not theme.strip():
+            st.error("テーマを入力してください")
+        else:
+            with st.spinner("AIが漫画の構成を生成しています…"):
+                try:
+                    from src.auto_manga import generate_and_save
+                except ImportError:
+                    from auto_manga import generate_and_save
+
+                # 4コマの場合は1枚に4コマ
+                effective_panels = 1 if usage_key == "four_panel" else total_panels
+                project_data_new, chars_data_new = generate_and_save(
+                    theme.strip(),
+                    CONFIG_DIR,
+                    genre=genre_key,
+                    usage=usage_key,
+                    total_panels=effective_panels,
+                    art_taste=art_key,
+                    design_structure=design_key,
+                    canvas_ratio="9:16",
+                    output_mode="per_koma",
+                )
+                st.success(
+                    f"✅ 生成完了！「{project_data_new['project'].get('title', '')}」"
+                    f"（{len(project_data_new['panels'])}枚・{len(chars_data_new.get('characters', []))}人）"
+                )
+                st.info("「漫画生成」タブでプロンプトをコピーして画像を生成してください。")
+                st.rerun()
+
+    st.divider()
+    st.caption("※ GEMINI_API_KEY が .env に設定されている必要があります。")
 
 
 def render_manga_tab(options, characters, project_data):

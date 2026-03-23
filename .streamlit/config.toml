@@ -2,8 +2,9 @@
 [server]
 headless = true
 port = 8501
-enableCORS = false
+# enableCORS と enableXsrfProtection は併用不可のため、デフォルトに任せる
 enableXsrfProtection = true
+runOnSave = false
 
 [browser]
 gatherUsageStats = false
