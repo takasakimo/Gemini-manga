@@ -55,6 +55,7 @@ def build_dialogue_section(panel: dict, char_map: dict[str, dict]) -> str:
         return ""
     return (
         "DIALOGUE (authentic Japanese manga style):\n"
+        "- English names below are for you to match speakers visually only—do NOT letter those English names on the page.\n"
         "- Oval speech bubbles with tails pointing to the speaker.\n"
         "- Draw ALL dialogue text in VERTICAL orientation (tategaki, right-to-left columns) as in real manga.\n"
         "- Clear gutters (white space) between panels. Clean black panel borders.\n"
@@ -81,6 +82,38 @@ def _get_manga_production_block() -> str:
         "Onomatopoeia as graphic elements. Gutters between panels. "
         "Focus lines, action lines for drama."
     )
+
+
+def _get_forbidden_lettering_block() -> str:
+    """
+    画像にプロンプト由来の文字が出ないよう、本文の先頭で強く指定。
+    英日混在（Gemini 画像向け）。
+    """
+    return (
+        "【最優先・禁止】この指示文に出てくる英単語や見出しを、漫画の絵の中に文字として描かないこと。\n"
+        "CRITICAL — NEVER draw on the artwork: page/panel numbers; fractions like 1/3, 2/3, 3/3; "
+        "'Panel 1', '1枚目', 'コマ1'; progress counters; corner stamps; margin notes; chapter numbers that are only metadata; "
+        "watermarks; the words Setting, Camera, Action, Dialogue, LAYOUT, PANEL, CRITICAL, FORBIDDEN; "
+        "dashes used as section dividers from this prompt; XML/tag brackets or tag names; "
+        "any label that looks like a prompt or editor UI.\n"
+        "Below: technical descriptions for YOU only — interpret visually, do NOT letter them onto the page.\n"
+        "描いてよい文字: 吹き出し・思考のふきだしのセリフ、画面内の看板・スクリーンの文言（物語の一部として自然なもの）、"
+        "擬音（ザワザワ、ドキッ 等の漫画表現としての文字）。それ以外の説明文は絵に書かない。"
+    )
+
+
+def _get_forbidden_lettering_footer() -> str:
+    return (
+        "FINAL: The image must look like a finished manga page with NO instructional text, NO panel counters, "
+        "NO '1/3' style markers, and NO English prompt fragments visible anywhere."
+    )
+
+
+def _append_style_negative_no_meta(style_neg: str) -> str:
+    extra = (
+        " No page numbers, no panel index numbers, no 1/3-style fractions, no prompt labels or metadata as visible text."
+    )
+    return (style_neg + extra).strip() if style_neg else extra.strip()
 
 
 def _get_emotional_storytelling_block() -> str:
@@ -153,23 +186,25 @@ def build_panel_prompt(
         "Action lines for movement. Subtle effects: blush lines, sweat drops for emotion."
     )
     parts = [
+        _get_forbidden_lettering_block(),
         "MOST IMPORTANT: Character consistency across the entire manga panel.",
         style_header.strip() if style_header else "",
-        f"Panel title/heading (draw prominently if present): {title}" if title else "",
-        "CHARACTER DESCRIPTIONS (maintain exact appearance):",
+        f"In-world title or heading (only if clearly a sign/poster in the scene): {title}" if title else "",
+        "CHARACTER DESCRIPTIONS (for appearance only; do not paste this block as visible text):",
         char_prompts,
         "",
-        "SCENE & COMPOSITION:",
-        f"Setting: {scene}",
-        f"Camera/shot: {shot}" if shot else "",
-        f"Action & expression: {action}",
+        "SINGLE PANEL — draw the following as art, not as captions or labels on the page:",
+        f"Background and place: {scene}",
+        f"Camera and framing: {shot}" if shot else "",
+        f"Action, poses, expressions: {action}",
         "",
         manga_techniques,
         "",
         dialogue_section,
         "",
+        _get_forbidden_lettering_footer(),
         f"Base art style: {art_style}",
-        f"{style_neg}",
+        _append_style_negative_no_meta(style_neg),
     ]
     return "\n".join(p for p in parts if p).strip()
 
@@ -240,19 +275,23 @@ def build_page_prompt(
                 dial_lines.append(f'  - {name_en}: "{text}"')
             dial_str = "\n".join(dial_lines) if dial_lines else "  (none)"
             panel_descs.append(
-                f"**Panel {ki + 1}:**\n"
-                f"  Setting: {scene or '(as appropriate)'}\n"
-                f"  Camera/shot: {shot or '(as appropriate)'}\n"
-                f"  Action: {action or '(as appropriate)'}\n"
-                f"  Dialogue: oval bubbles with tails, VERTICAL Japanese text (tategaki):\n{dial_str}"
+                "<scene_instruction>\n"
+                f"{scene or 'Appropriate setting for this beat'}\n"
+                f"Framing: {shot or 'appropriate'}\n"
+                f"Action: {action or 'appropriate'}\n"
+                f"Speech in oval bubbles only, VERTICAL Japanese (tategaki):\n{dial_str}\n"
+                "</scene_instruction>"
             )
         panel_section = "\n\n".join(panel_descs)
-        content_label = f"PANEL CONTENT (draw EXACTLY {num_panels} panels - do NOT merge or reduce. Each panel below must appear):"
+        content_label = (
+            f"PANEL CONTENT: draw exactly {num_panels} separate comic panels (this number is for you only—do NOT write it on the page). "
+            "Each block below is one panel; do NOT merge or reduce count."
+        )
         layout = (
-            f"LAYOUT: You MUST draw exactly {num_panels} panels. Do NOT merge panels or reduce the count.\n"
-            f"YOU decide: where to place each panel (placement), panel sizes (make emotionally intense panels LARGER - climax, punchline, revelation), "
-            "arrangement (2x2 grid, vertical stack, or mixed). Use gutters and clear borders. "
-            "Draw ALL panels in ONE single image. Output MUST be one combined image, never separate."
+            f"LAYOUT: Exactly {num_panels} panels in ONE image. Do NOT merge or reduce.\n"
+            "YOU decide placement, relative sizes (larger for climax/punchline), grid vs vertical stack. Gutters and black borders. "
+            "One combined image only. Do NOT write the panel count or the word LAYOUT on the artwork.\n"
+            "The <scene_instruction>...</scene_instruction> wrappers are invisible metadata—never draw angle brackets, tag names, or English field labels."
         )
     else:
         # 固定レイアウト
@@ -272,59 +311,65 @@ def build_page_prompt(
                 dial_lines.append(f'  - {name_en}: "{text}"')
             dial_str = "\n".join(dial_lines) if dial_lines else "  (none)"
             panel_descs.append(
-                f"**Panel {ki + 1}:**\n"
-                f"  Setting: {scene or '(as appropriate)'}\n"
-                f"  Camera/shot: {shot or '(as appropriate)'}\n"
-                f"  Action: {action or '(as appropriate)'}\n"
-                f"  Dialogue: oval bubbles with tails, VERTICAL Japanese text (tategaki):\n{dial_str}"
+                "<scene_instruction>\n"
+                f"{scene or 'Appropriate setting for this beat'}\n"
+                f"Framing: {shot or 'appropriate'}\n"
+                f"Action: {action or 'appropriate'}\n"
+                f"Speech in oval bubbles only, VERTICAL Japanese (tategaki):\n{dial_str}\n"
+                "</scene_instruction>"
             )
         panel_section = "\n\n".join(panel_descs)
-        content_label = "PANEL CONTENT (draw each panel as described, all within the same image):"
+        content_label = (
+            "PANEL CONTENT: draw each segment below as one comic cell in the same image. "
+            "Do NOT render tag names, brackets, or English structural words on the canvas."
+        )
         if num_panels == 4:
             layout = (
-                "LAYOUT: Draw ALL 4 panels in ONE single image. "
-                "Use a 2x2 grid (four equal panels in 2 rows × 2 columns) "
-                "with clear panel borders. This is a FOUR-PANEL MANGA format (yonkoma). "
-                "Output MUST be a single combined image, never separate images."
+                "LAYOUT: Four panels in ONE image, 2×2 yonkoma grid, clear borders. Single combined image only. "
+                "Do NOT write panel counts, LAYOUT, or instruction words on the art. "
+                "<scene_instruction> blocks are metadata only—never draw tags or labels from them."
             )
         elif num_panels >= 2:
             layout = (
-                f"LAYOUT: Draw ALL {num_panels} panels in ONE single image. "
-                "Arrange panels vertically (top to bottom) with clear borders between each. "
-                "Output MUST be a single combined image containing all panels, never separate images."
+                f"LAYOUT: {num_panels} panels in ONE image, vertical stack top-to-bottom, clear borders. "
+                "Single combined image. Do NOT write numbers, fractions, or English UI words on the page. "
+                "<scene_instruction> blocks are metadata only—never draw tags or labels from them."
             )
         else:
-            layout = f"LAYOUT: Single panel. Output as one image."
+            layout = "LAYOUT: Single panel, one image. Do not add instructional text to the artwork."
 
     manga_page_style = (
         "MANGA PAGE STYLE: Clean white gutters between panels. Black panel borders. "
         "Screentone (halftone dots) for shading. Oval speech bubbles with tails, vertical Japanese text. "
         "Add onomatopoeia as graphic elements when fitting (e.g. コツ ザッ ドキ). "
-        "Focus lines and action lines for emotional/action scenes."
+        "Focus lines and action lines for emotional/action scenes. "
+        "No corner boxes with technical titles unless clearly in-world (e.g. a diegetic screen)."
     )
     manga_production = _get_manga_production_block()
     emotional_storytelling = _get_emotional_storytelling_block()
     parts = [
+        _get_forbidden_lettering_block(),
         "CRITICAL: Produce ONE single image containing multiple manga panels. Do NOT generate separate images.",
         "Draw a SINGLE manga page where ALL panels share the same canvas/frame.",
         "MOST IMPORTANT: Character consistency across ALL panels on this page.",
         manga_production,
         emotional_storytelling,
         style_header.strip() if style_header else "",
-        f"Page title/heading (draw prominently if present): {title}" if title else "",
-        "CHARACTER DESCRIPTIONS (maintain exact appearance in every panel):",
+        f"In-world page title (only as a diegetic sign, poster, or chapter art—never as a bare fraction or counter): {title}" if title else "",
+        "CHARACTER DESCRIPTIONS (appearance reference only; do not paste as floating captions):",
         char_prompts,
         "",
         manga_page_style,
         "",
         layout,
         "",
-        content_label if layout_mode_auto else "PANEL CONTENT (draw each panel as described, all within the same image):",
+        content_label,
         "",
         panel_section,
         "",
+        _get_forbidden_lettering_footer(),
         f"Base art style: {art_style}",
-        style_neg,
+        _append_style_negative_no_meta(style_neg),
     ]
     return "\n".join(p for p in parts if p).strip()
 
@@ -556,7 +601,7 @@ def build_theme_image_prompts(
         for idx, (label, desc) in enumerate(koma4, start=1):
             koma_list.append({
                 "scene": f"Story theme: {theme}\n4-koma beat [{label}]: {desc}",
-                "shot": f"Four-panel manga strip, panel {idx} of 4; clear gutters between panels",
+                "shot": "One cell in a vertical four-panel yonkoma strip; clear gutters; no cell numbers on the art",
                 "action": (
                     f"Show 「{label}」 moment vividly. Add vertical Japanese dialogue in speech bubbles where natural."
                 ),
@@ -564,7 +609,7 @@ def build_theme_image_prompts(
             })
         panels = [{
             "number": 1,
-            "title": theme[:48] + ("…" if len(theme) > 48 else ""),
+            "title": "",
             "text": theme,
             "characters": char_ids,
             "koma": koma_list,
@@ -596,11 +641,14 @@ def build_theme_image_prompts(
             shot = shots[i % len(shots)]
             panels.append({
                 "number": i + 1,
-                "title": f"{i + 1} / {total_panels}",
+                "title": "",
                 "text": theme,
                 "characters": char_ids,
                 "koma": [{
-                    "scene": f"STORY THEME (must read clearly in the art): {theme}\nBeat: {beat} (panel {i + 1} of {total_panels}).",
+                    "scene": (
+                        f"STORY THEME (must read clearly in the art): {theme}\n"
+                        f"Narrative beat for this image: {beat}. (Same ongoing story; do not draw page numbers.)"
+                    ),
                     "shot": shot,
                     "action": (
                         "Characters and props consistent with the theme; natural acting. "
