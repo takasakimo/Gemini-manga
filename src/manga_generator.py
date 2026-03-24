@@ -438,17 +438,19 @@ def _flatten_panels(panels: list[dict]) -> list[tuple[str, dict, dict]]:
     return result
 
 
-def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> list[tuple[str, str]]:
+def get_all_prompts_from_data(
+    chars_config: dict,
+    project_config: dict,
+    output_mode: str | None = None,
+) -> list[tuple[str, str]]:
     """
-    プロンプトを取得。
-    - per_koma: 各コマごとに1プロンプト（コマ数分）
-    - per_page: 1枚目ごとに1プロンプト（複数コマを1枚の画像用にまとめる）
+    メモリ上の project / characters から画像用プロンプト一覧を構築。
+    output_mode が None のときは project.project.output_mode を使用。
     """
-    chars_config, project_config = load_config(config_dir)
     panels = project_config.get("panels", [])
     all_chars = chars_config.get("characters", [])
     proj = project_config.get("project", {})
-    mode = proj.get("output_mode", output_mode)
+    mode = output_mode if output_mode is not None else proj.get("output_mode", "per_page")
 
     if mode == "per_page":
         result = []
@@ -460,7 +462,6 @@ def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> lis
             result.append((label, prompt))
         return result
 
-    # per_koma
     result = []
     for label, merged, _ in _flatten_panels(panels):
         char_ids = merged.get("characters", [])
@@ -468,6 +469,164 @@ def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> lis
         prompt = build_panel_prompt(merged, chars_config, chars_in, project_config)
         result.append((label, prompt))
     return result
+
+
+def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> list[tuple[str, str]]:
+    """
+    プロンプトを取得。
+    - per_koma: 各コマごとに1プロンプト（コマ数分）
+    - per_page: 1枚目ごとに1プロンプト（複数コマを1枚の画像用にまとめる）
+    """
+    chars_config, project_config = load_config(config_dir)
+    proj = project_config.get("project", {})
+    mode = proj.get("output_mode", output_mode)
+    return get_all_prompts_from_data(chars_config, project_config, mode)
+
+
+def _load_chars_config(config_dir: Path) -> dict:
+    path = config_dir / "characters.yaml"
+    if not path.exists():
+        return {"series": {}, "characters": []}
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data if isinstance(data, dict) else {"series": {}, "characters": []}
+
+
+def build_theme_image_prompts(
+    theme: str,
+    config_dir: Path,
+    *,
+    genre: str = "none",
+    usage: str = "standard_manga",
+    total_panels: int = 3,
+    art_taste: str = "standard",
+    design_structure: str = "auto",
+    canvas_ratio: str = "9:16",
+    output_mode: str = "per_koma",
+    four_panel: bool = False,
+) -> list[tuple[str, str]]:
+    """
+    テーマと選択項目だけから、Gemini 画像生成にそのまま貼るプロンプトを組み立てる。
+    JSON や中間ファイルは不要。既存の characters.yaml があれば一貫性のため利用する。
+    """
+    theme = (theme or "").strip()
+    if not theme:
+        raise ValueError("テーマが空です")
+
+    chars_config = _load_chars_config(config_dir)
+    characters = list(chars_config.get("characters") or [])
+    if not characters:
+        characters = [{
+            "id": "lead",
+            "name": "主人公",
+            "name_en": "Protagonist",
+            "description": (
+                f"Main character(s) appropriate for this story: {theme}. "
+                "Distinct, memorable design; same hair, face, outfit, and body proportions in every panel."
+            ),
+            "personality_hints": "Expressions and poses that fit the story beats",
+            "voice_style": "Natural Japanese dialogue in speech bubbles",
+        }]
+        series = chars_config.get("series") or {}
+        if not series.get("art_style"):
+            series = {
+                **series,
+                "title": series.get("title") or "Theme manga",
+                "art_style": (
+                    "Professional Japanese manga: black-and-white, screentone halftone shading, "
+                    "clean ink lines, oval speech bubbles with VERTICAL Japanese (tategaki), "
+                    "onomatopoeia as graphic elements, publication quality."
+                ),
+                "style_negative": (
+                    "Avoid: photorealistic, 3D render, Western comic layout, horizontal text in bubbles."
+                ),
+            }
+        chars_config = {"series": series, "characters": characters}
+
+    char_ids = [c["id"] for c in characters[:5]]
+
+    if four_panel:
+        koma4 = [
+            ("起", "Introduce the situation and characters clearly."),
+            ("承", "Develop the story along the theme; tension or comedy builds."),
+            ("転", "Twist, surprise, or turning point."),
+            ("結", "Punchline, resolution, or warm closing beat."),
+        ]
+        koma_list = []
+        for idx, (label, desc) in enumerate(koma4, start=1):
+            koma_list.append({
+                "scene": f"Story theme: {theme}\n4-koma beat [{label}]: {desc}",
+                "shot": f"Four-panel manga strip, panel {idx} of 4; clear gutters between panels",
+                "action": (
+                    f"Show 「{label}」 moment vividly. Add vertical Japanese dialogue in speech bubbles where natural."
+                ),
+                "dialogue": [],
+            })
+        panels = [{
+            "number": 1,
+            "title": theme[:48] + ("…" if len(theme) > 48 else ""),
+            "text": theme,
+            "characters": char_ids,
+            "koma": koma_list,
+        }]
+        n_pages = 1
+    else:
+        beat_labels = [
+            "Opening: establish setting and mood",
+            "Rising action: story moves forward",
+            "Turn or climax: emotion or stakes peak",
+            "Falling action or punchline setup",
+            "Resolution or afterglow",
+            "Extra story beat",
+            "Further development",
+            "Continuation",
+            "Near ending",
+            "Final beat",
+        ]
+        shots = [
+            "Wide establishing shot",
+            "Medium shot on character(s)",
+            "Close-up on face or hands",
+            "Dynamic angle (low or dutch)",
+            "Two-shot or interaction framing",
+        ]
+        panels = []
+        for i in range(total_panels):
+            beat = beat_labels[min(i, len(beat_labels) - 1)]
+            shot = shots[i % len(shots)]
+            panels.append({
+                "number": i + 1,
+                "title": f"{i + 1} / {total_panels}",
+                "text": theme,
+                "characters": char_ids,
+                "koma": [{
+                    "scene": f"STORY THEME (must read clearly in the art): {theme}\nBeat: {beat} (panel {i + 1} of {total_panels}).",
+                    "shot": shot,
+                    "action": (
+                        "Characters and props consistent with the theme; natural acting. "
+                        "Use oval speech bubbles with VERTICAL Japanese (tategaki) where dialogue helps the scene."
+                    ),
+                    "dialogue": [],
+                }],
+            })
+        n_pages = total_panels
+
+    project_config = {
+        "project": {
+            "title": theme[:60] + ("…" if len(theme) > 60 else ""),
+            "total_panels": n_pages,
+            "usage": usage,
+            "canvas_ratio": canvas_ratio,
+            "aspect_ratio": canvas_ratio,
+            "genre": genre,
+            "design_structure": design_structure,
+            "art_taste": art_taste,
+            "output_mode": output_mode,
+        },
+        "panels": panels,
+    }
+
+    return get_all_prompts_from_data(chars_config, project_config, output_mode)
 
 
 def main():

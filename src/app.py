@@ -3,7 +3,6 @@
 スクリーンショット参考アプリ風の3ステップ項目選択インターフェース
 """
 
-import json
 import yaml
 from pathlib import Path
 
@@ -343,7 +342,7 @@ def main():
     st.caption("Nano Banana 2 (Gemini 3.1 Flash Image) で一貫性のある漫画を生成")
 
     tab_auto, tab_manga, tab_chars, tab_gallery = st.tabs([
-        "🤖 フルオート",
+        "🖼 テーマ→画像プロンプト",
         "📄 漫画生成",
         "👤 キャラクター設定",
         "🖼 生成済み画像",
@@ -362,33 +361,23 @@ def main():
         render_gallery_tab()
 
 
-def _build_combined_image_prompts(config_dir: Path, output_mode: str) -> str:
-    """漫画生成と同じ形式で、Gemini 画像用プロンプトを1つの文字列にまとめる"""
-    try:
-        from src.manga_generator import get_all_prompts_flat
-    except ImportError:
-        from manga_generator import get_all_prompts_flat
-
-    prompts = get_all_prompts_flat(config_dir, output_mode)
-    separator = "\n\n" + "=" * 50 + "\n"
-    return separator.join(f"【{label}】\n{prompt_text}" for label, prompt_text in prompts)
+def _combine_labelled_prompts(items: list[tuple[str, str]]) -> str:
+    sep = "\n\n" + "=" * 50 + "\n"
+    return sep.join(f"【{label}】\n{text}" for label, text in items)
 
 
 def render_auto_tab(options, project_data, characters):
-    """フルオート：テーマ→構成JSON→反映後、Gemini 画像用プロンプトをその場で表示"""
-    st.header("🤖 テーマから漫画を自動生成")
-    st.info(
-        "**目的**: Gemini の**画像生成**（Nano Banana / Flash Image など）に貼るプロンプトを出すことです。\n\n"
-        "1. **①** は「ストーリー・コマ・セリフ」を JSON で書かせる**テキスト用**プロンプト（画像ではありません）。\n"
-        "2. **②** に Gemini の返答を貼って「設定に反映」。\n"
-        "3. **③** に **画像用プロンプト**が表示されます → これを画像モデルにコピーして1枚ずつ生成してください。"
+    """テーマだけで Gemini 画像生成に貼るプロンプトをその場で組み立て（JSON なし）"""
+    st.header("🖼 テーマから画像用プロンプト")
+    st.caption(
+        "テーマと画風などを選んでボタンを押すと、**Gemini の画像生成にそのまま貼るプロンプト**が出ます。"
+        "区切り（【…】）ごとにコピーして、1回の生成に1ブロックずつ使ってください。"
+        "（`characters.yaml` にキャラがあれば、その見た目を一貫させる指示に使います）"
     )
-    if "auto_image_prompt_build_error" in st.session_state:
-        st.warning(st.session_state.pop("auto_image_prompt_build_error"))
 
     theme = st.text_area(
         "漫画のテーマ・あらすじ",
-        placeholder="例: 転校初日、教室で自己紹介中にスマホが鳴り響いて大恥をかく女子高生の話\n例: 新商品の営業プレゼンで失敗しそうになる社会人の奮闘",
+        placeholder="例: 転校初日、教室で自己紹介中にスマホが鳴り響いて大恥をかく女子高生の話",
         height=100,
         key="auto_theme",
     )
@@ -415,7 +404,14 @@ def render_auto_tab(options, project_data, characters):
         )
         genre_key = genre_opts[genre_idx][0]
     with col3:
-        total_panels = st.number_input("枚数", min_value=1, max_value=10, value=3, key="auto_panels")
+        total_panels = st.number_input(
+            "枚数（4コマ以外）",
+            min_value=1,
+            max_value=10,
+            value=3,
+            key="auto_panels",
+            disabled=(usage_key == "four_panel"),
+        )
 
     with col1:
         art_idx = st.selectbox(
@@ -427,7 +423,7 @@ def render_auto_tab(options, project_data, characters):
         art_key = art_opts[art_idx][0]
     with col2:
         design_idx = st.selectbox(
-            "コマ割り",
+            "コマ割りの考え方",
             range(len(design_opts)),
             format_func=lambda i: design_opts[i][1],
             key="auto_design",
@@ -435,140 +431,76 @@ def render_auto_tab(options, project_data, characters):
         design_key = design_opts[design_idx][0]
 
     output_mode_opts = options.get("output_mode") or [
-        ["per_koma", "各コマを個別画像"],
-        ["per_page", "1枚目を1画像に"],
+        ["per_koma", "各コマを個別画像（おすすめ）"],
+        ["per_page", "1枚に複数コマをまとめた1画像"],
     ]
     output_mode_idx = {o[0]: i for i, o in enumerate(output_mode_opts)}
-    proj_auto = project_data.get("project", {})
     om_labels = [o[1] for o in output_mode_opts]
     om_sel = st.selectbox(
-        "画像プロンプトの出し方（反映時に保存）",
+        "画像の出し方",
         range(len(om_labels)),
         format_func=lambda i: om_labels[i],
-        index=output_mode_idx.get(proj_auto.get("output_mode", "per_koma"), 0),
-        help="各コマごとに1プロンプト／または1枚に複数コマをまとめた1プロンプト",
+        index=output_mode_idx.get("per_koma", 0),
         key="auto_output_mode",
     )
     output_mode_key = output_mode_opts[om_sel][0]
 
     try:
-        from src.auto_manga import build_full_auto_prompt, apply_pasted_json
+        from src.manga_generator import build_theme_image_prompts
     except ImportError:
-        from auto_manga import build_full_auto_prompt, apply_pasted_json
+        from manga_generator import build_theme_image_prompts
 
     effective_panels = 1 if usage_key == "four_panel" else total_panels
+    four_panel = usage_key == "four_panel"
 
     if st.button(
-        "① 構成用プロンプトを表示（JSON を返させる・画像ではない）",
+        "🖼 画像用プロンプトを表示",
         type="primary",
         use_container_width=True,
-        key="auto_show_prompt",
+        key="auto_image_prompt_btn",
     ):
         if not theme or not theme.strip():
             st.error("テーマを入力してください")
         else:
-            st.session_state["auto_full_prompt"] = build_full_auto_prompt(
-                theme.strip(),
-                genre=genre_key,
-                usage=usage_key,
-                total_panels=effective_panels,
-                art_taste=art_key,
-                design_structure=design_key,
-            )
-
-    if st.session_state.get("auto_full_prompt"):
-        st.subheader("① テキスト用：構成・セリフの JSON を書かせるプロンプト")
-        st.caption(
-            "Gemini の**チャット（テキスト）**に貼ります。返ってくるのは JSON だけです。**画像生成には使いません。**"
-        )
-        prompt_text = st.session_state["auto_full_prompt"]
-        st.code(prompt_text, language=None, line_numbers=False)
-        st.download_button(
-            "📥 ① を .txt でダウンロード",
-            data=prompt_text,
-            file_name="manga_structure_prompt.txt",
-            mime="text/plain",
-            key="auto_prompt_dl",
-        )
-
-    st.divider()
-    st.subheader("② 構成 JSON を貼り付けて保存")
-    pasted = st.text_area(
-        "返ってきた JSON 全文（```json で囲まれていても可）",
-        height=220,
-        placeholder='{"title": "...", "characters": [...], "panels": [...]}',
-        key="auto_paste_json",
-    )
-
-    if st.button("✅ 設定に反映（project.yaml / characters.yaml）", use_container_width=True, key="auto_apply_json"):
-        if not pasted or not pasted.strip():
-            st.error("JSON を貼り付けてください")
-        else:
             try:
-                project_data_new, chars_data_new = apply_pasted_json(
-                    pasted.strip(),
+                pairs = build_theme_image_prompts(
+                    theme.strip(),
                     CONFIG_DIR,
                     genre=genre_key,
                     usage=usage_key,
-                    canvas_ratio="9:16",
-                    design_structure=design_key,
+                    total_panels=effective_panels,
                     art_taste=art_key,
+                    design_structure=design_key,
+                    canvas_ratio="9:16",
                     output_mode=output_mode_key,
+                    four_panel=four_panel,
                 )
-                try:
-                    st.session_state["auto_image_prompts_text"] = _build_combined_image_prompts(
-                        CONFIG_DIR, output_mode_key
-                    )
-                    st.session_state.pop("auto_image_prompt_build_error", None)
-                except Exception as ex:
-                    st.session_state.pop("auto_image_prompts_text", None)
-                    st.session_state["auto_image_prompt_build_error"] = (
-                        f"設定は保存済みですが、画像用プロンプトの生成に失敗しました: {ex}"
-                    )
-                st.success(
-                    f"反映しました。「{project_data_new['project'].get('title', '')}」"
-                    f"（{len(project_data_new['panels'])}枚・{len(chars_data_new.get('characters', []))}人）"
-                )
-                st.rerun()
-            except json.JSONDecodeError as e:
-                st.error(f"JSON の解析に失敗しました: {e}")
+                st.session_state["theme_image_prompts_text"] = _combine_labelled_prompts(pairs)
+                st.session_state.pop("theme_image_prompt_error", None)
             except Exception as e:
-                st.error(f"反映できませんでした: {e}")
+                st.session_state.pop("theme_image_prompts_text", None)
+                st.session_state["theme_image_prompt_error"] = str(e)
 
-    if st.button(
-        "📸 保存済みの設定から画像用プロンプトだけ表示",
-        use_container_width=True,
-        key="auto_show_image_only",
-    ):
-        try:
-            st.session_state["auto_image_prompts_text"] = _build_combined_image_prompts(
-                CONFIG_DIR, output_mode_key
-            )
-            st.rerun()
-        except Exception as e:
-            st.error(f"プロンプトを作れませんでした: {e}")
+    if "theme_image_prompt_error" in st.session_state:
+        st.error(st.session_state.pop("theme_image_prompt_error"))
 
-    if st.session_state.get("auto_image_prompts_text"):
+    if st.session_state.get("theme_image_prompts_text"):
         st.divider()
-        st.subheader("③ Gemini 画像生成に貼るプロンプト（ここが本命）")
-        st.caption(
-            "画像モデル（例: Gemini の画像生成）に、区切りごとにコピーして貼り付けてください。"
-            "「漫画生成」タブの「プロンプトをコピー」と同じ内容です。"
-        )
-        img_prompts = st.session_state["auto_image_prompts_text"]
+        st.subheader("Gemini 画像生成に貼るプロンプト")
+        img_prompts = st.session_state["theme_image_prompts_text"]
         st.code(img_prompts, language=None, line_numbers=False)
         st.download_button(
-            "📥 ③ 画像用プロンプトを一括ダウンロード (.txt)",
+            "📥 一括ダウンロード (.txt)",
             data=img_prompts,
-            file_name="gemini_image_prompts.txt",
+            file_name="gemini_manga_image_prompts.txt",
             mime="text/plain",
-            key="auto_image_prompts_dl",
+            key="theme_prompt_dl",
         )
-        if st.button("③ の表示を消す", key="auto_clear_image_prompts"):
-            st.session_state.pop("auto_image_prompts_text", None)
+        if st.button("表示を消す", key="theme_prompt_clear"):
+            st.session_state.pop("theme_image_prompts_text", None)
             st.rerun()
 
-    st.caption("※ サーバーから Gemini API は呼び出しません。画像はご自身の Gemini で生成してください。")
+    st.caption("※ JSON や別AIの返答は不要です。細かいセリフまで決めたい場合は「漫画生成」タブで編集してからプロンプトをコピーしてください。")
 
 
 def render_manga_tab(options, characters, project_data):
