@@ -3,6 +3,7 @@
 スクリーンショット参考アプリ風の3ステップ項目選択インターフェース
 """
 
+import json
 import yaml
 from pathlib import Path
 
@@ -362,9 +363,12 @@ def main():
 
 
 def render_auto_tab(options, project_data, characters):
-    """フルオートタブ：テーマだけ決めればコマ割り・セリフ・キャラを一括自動生成"""
+    """フルオートタブ：プロンプトを Gemini に貼り、返答 JSON を反映（API 不要）"""
     st.header("🤖 テーマから漫画を自動生成")
-    st.caption("テーマを入力するだけで、キャラクター・コマ割り・セリフをAIが一括生成します。生成後は「漫画生成」タブでプロンプトをコピーして画像化できます。")
+    st.caption(
+        "① 下の「プロンプトを表示」で全文をコピー → ② Gemini（ブラウザ）に貼り付けて回答を得る → "
+        "③ 返ってきた JSON を下の枠に貼り「設定に反映」。Streamlit Cloud でも API キー不要です。"
+    )
 
     theme = st.text_area(
         "漫画のテーマ・あらすじ",
@@ -414,38 +418,75 @@ def render_auto_tab(options, project_data, characters):
         )
         design_key = design_opts[design_idx][0]
 
-    if st.button("✨ 漫画を自動生成", type="primary", use_container_width=True, key="auto_btn"):
+    try:
+        from src.auto_manga import build_full_auto_prompt, apply_pasted_json
+    except ImportError:
+        from auto_manga import build_full_auto_prompt, apply_pasted_json
+
+    effective_panels = 1 if usage_key == "four_panel" else total_panels
+
+    if st.button("📋 フルオート用プロンプトを表示", type="primary", use_container_width=True, key="auto_show_prompt"):
         if not theme or not theme.strip():
             st.error("テーマを入力してください")
         else:
-            with st.spinner("AIが漫画の構成を生成しています…"):
-                try:
-                    from src.auto_manga import generate_and_save
-                except ImportError:
-                    from auto_manga import generate_and_save
+            st.session_state["auto_full_prompt"] = build_full_auto_prompt(
+                theme.strip(),
+                genre=genre_key,
+                usage=usage_key,
+                total_panels=effective_panels,
+                art_taste=art_key,
+                design_structure=design_key,
+            )
 
-                # 4コマの場合は1枚に4コマ
-                effective_panels = 1 if usage_key == "four_panel" else total_panels
-                project_data_new, chars_data_new = generate_and_save(
-                    theme.strip(),
+    if st.session_state.get("auto_full_prompt"):
+        st.subheader("① Gemini に貼り付けるプロンプト")
+        st.caption("枠内を全選択（Cmd+A / Ctrl+A）してコピーし、Gemini に貼り付けてください。")
+        prompt_text = st.session_state["auto_full_prompt"]
+        st.code(prompt_text, language=None, line_numbers=False)
+        st.download_button(
+            "📥 プロンプトを .txt でダウンロード",
+            data=prompt_text,
+            file_name="full_auto_manga_prompt.txt",
+            mime="text/plain",
+            key="auto_prompt_dl",
+        )
+
+    st.divider()
+    st.subheader("② Gemini の応答を貼り付け")
+    pasted = st.text_area(
+        "返ってきた JSON 全文（```json で囲まれていても可）",
+        height=220,
+        placeholder='{"title": "...", "characters": [...], "panels": [...]}',
+        key="auto_paste_json",
+    )
+
+    if st.button("✅ 設定に反映（project.yaml / characters.yaml）", use_container_width=True, key="auto_apply_json"):
+        if not pasted or not pasted.strip():
+            st.error("JSON を貼り付けてください")
+        else:
+            try:
+                project_data_new, chars_data_new = apply_pasted_json(
+                    pasted.strip(),
                     CONFIG_DIR,
                     genre=genre_key,
                     usage=usage_key,
-                    total_panels=effective_panels,
-                    art_taste=art_key,
-                    design_structure=design_key,
                     canvas_ratio="9:16",
+                    design_structure=design_key,
+                    art_taste=art_key,
                     output_mode="per_koma",
                 )
                 st.success(
-                    f"✅ 生成完了！「{project_data_new['project'].get('title', '')}」"
+                    f"反映しました。「{project_data_new['project'].get('title', '')}」"
                     f"（{len(project_data_new['panels'])}枚・{len(chars_data_new.get('characters', []))}人）"
                 )
-                st.info("「漫画生成」タブでプロンプトをコピーして画像を生成してください。")
+                st.info("「漫画生成」タブで画像用プロンプトをコピーしてください。")
                 st.rerun()
+            except json.JSONDecodeError as e:
+                st.error(f"JSON の解析に失敗しました: {e}")
+            except Exception as e:
+                st.error(f"反映できませんでした: {e}")
 
-    st.divider()
-    st.caption("※ GEMINI_API_KEY が .env に設定されている必要があります。")
+    st.caption("※ このタブではサーバーから Gemini API を呼び出しません（エラー・課金の心配なし）。")
 
 
 def render_manga_tab(options, characters, project_data):

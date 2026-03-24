@@ -1,17 +1,14 @@
 """
-テーマから漫画の構成（キャラ・コマ割り・セリフ）をフルオート生成
-Gemini API で project.yaml / characters.yaml 相当の構造を生成する
+テーマから漫画の構成（キャラ・コマ割り・セリフ）をプロンプト経由で生成
+- プロンプトを Gemini（ブラウザ等）に貼り付け → JSON を返答させる
+- 返答を貼り付けて project.yaml / characters.yaml に反映（API 不要・Cloud 対応）
 """
 
 from pathlib import Path
 import json
-import os
 import re
 
-from dotenv import load_dotenv
 import yaml
-
-load_dotenv()
 
 # プロンプトで生成させる JSON スキーマの説明
 SCHEMA_INSTRUCTION = """
@@ -62,11 +59,9 @@ SCHEMA_INSTRUCTION = """
 def _extract_json_from_text(text: str) -> str | None:
     """テキストから JSON ブロックを抽出。```json ... ``` または { ... } を探す"""
     text = text.strip()
-    # ```json ... ``` または ``` ... ```
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if m:
         return m.group(1).strip()
-    # { ... } を探す（ネスト対応の簡易版）
     start = text.find("{")
     if start < 0:
         return None
@@ -81,7 +76,7 @@ def _extract_json_from_text(text: str) -> str | None:
     return None
 
 
-def generate_manga_from_theme(
+def build_full_auto_prompt(
     theme: str,
     *,
     genre: str = "none",
@@ -89,29 +84,15 @@ def generate_manga_from_theme(
     total_panels: int = 3,
     art_taste: str = "standard",
     design_structure: str = "auto",
-    canvas_ratio: str = "9:16",
-    output_mode: str = "per_koma",
-) -> tuple[dict, dict]:
-    """
-    テーマから漫画構成を生成し、(project_data, chars_data) を返す。
-    project_data: project.yaml 形式
-    chars_data: characters.yaml 形式（series + characters）
-    """
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY が設定されていません。.env を確認してください。")
-
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
-
+) -> str:
+    """Gemini に貼り付ける用の完全プロンプト（API 呼び出しなし）"""
     genre_hint = ""
     if genre and genre != "none":
         genre_hint = f"\nジャンル・世界観: {genre}"
 
     user_prompt = f"""
 【テーマ】
-{theme}
+{theme.strip()}
 {genre_hint}
 
 【指定】
@@ -123,33 +104,20 @@ def generate_manga_from_theme(
 
 上記の形式のJSONのみを出力してください。
 """
+    return SCHEMA_INSTRUCTION.strip() + "\n\n" + user_prompt.strip()
 
-    full_prompt = SCHEMA_INSTRUCTION + "\n\n" + user_prompt
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=full_prompt,
-        config={"temperature": 0.8},
-    )
-
-    raw_text = ""
-    if hasattr(response, "text") and response.text:
-        raw_text = response.text
-    elif response.candidates:
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, "text") and part.text:
-                raw_text += part.text
-
-    json_str = raw_text.strip()
-    # response_mime_type で JSON を指定していればそのままパース可能な場合が多い
-    json_block = _extract_json_from_text(json_str) or json_str
-
-    try:
-        data = json.loads(json_block)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"AIの出力をJSONとして解析できませんでした: {e}\n取得テキスト: {raw_text[:500]}...")
-
-    # project_data に変換
+def manga_dict_to_project_chars(
+    data: dict,
+    *,
+    genre: str = "none",
+    usage: str = "standard_manga",
+    canvas_ratio: str = "9:16",
+    design_structure: str = "auto",
+    art_taste: str = "standard",
+    output_mode: str = "per_koma",
+) -> tuple[dict, dict]:
+    """パース済み JSON オブジェクトから project_data / chars_data を構築"""
     project = {
         "title": data.get("title", "自動生成漫画"),
         "total_panels": len(data.get("panels", [])),
@@ -181,8 +149,6 @@ def generate_manga_from_theme(
 
     project_data = {"project": project, "panels": panels}
 
-    # characters を既存の series と合わせて chars_data に
-    # series の art_style 等は既存設定を読み込むか、デフォルトを使う
     chars_data = {
         "series": {
             "title": project["title"],
@@ -199,14 +165,36 @@ def generate_manga_from_theme(
     return project_data, chars_data
 
 
-def generate_and_save(
-    theme: str,
-    config_dir: Path,
-    **kwargs,
-) -> tuple[dict, dict]:
-    """生成して project.yaml / characters.yaml に保存"""
-    project_data, chars_data = generate_manga_from_theme(theme, **kwargs)
+def parse_manga_json_response(raw_text: str) -> dict:
+    """貼り付けた応答から JSON を取り出して dict に"""
+    json_block = _extract_json_from_text(raw_text.strip()) or raw_text.strip()
+    return json.loads(json_block)
 
+
+def apply_pasted_json(
+    raw_text: str,
+    config_dir: Path,
+    *,
+    genre: str = "none",
+    usage: str = "standard_manga",
+    canvas_ratio: str = "9:16",
+    design_structure: str = "auto",
+    art_taste: str = "standard",
+    output_mode: str = "per_koma",
+) -> tuple[dict, dict]:
+    """貼り付けテキストを解析し、project.yaml / characters.yaml に保存"""
+    data = parse_manga_json_response(raw_text)
+    project_data, chars_data = manga_dict_to_project_chars(
+        data,
+        genre=genre,
+        usage=usage,
+        canvas_ratio=canvas_ratio,
+        design_structure=design_structure,
+        art_taste=art_taste,
+        output_mode=output_mode,
+    )
+
+    config_dir.mkdir(parents=True, exist_ok=True)
     with open(config_dir / "project.yaml", "w", encoding="utf-8") as f:
         yaml.dump(project_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
