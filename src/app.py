@@ -448,8 +448,8 @@ def render_auto_tab(options, project_data, characters):
         design_key = design_opts[design_idx][0]
 
     output_mode_opts = options.get("output_mode") or [
-        ["per_koma", "各コマを個別画像（おすすめ）"],
-        ["per_page", "1枚に複数コマをまとめた1画像"],
+        ["per_koma", "最大4コマまで1画像（おすすめ）"],
+        ["per_page", "各「枚」を4コマ単位で分割"],
     ]
     output_mode_idx = {o[0]: i for i, o in enumerate(output_mode_opts)}
     om_labels = [o[1] for o in output_mode_opts]
@@ -459,6 +459,8 @@ def render_auto_tab(options, project_data, characters):
         format_func=lambda i: om_labels[i],
         index=output_mode_idx.get("per_koma", 0),
         key="auto_output_mode",
+        help="「最大4コマまで1画像」：ストーリー順に最大4コマを1プロンプトにまとめます（7コマなら2本のプロンプトなど）。"
+        "「各枚を分割」は project の枚ごとに、枚内のコマを4コマ単位で分けます。",
     )
     output_mode_key = output_mode_opts[om_sel][0]
 
@@ -577,8 +579,8 @@ def render_manga_tab(options, characters, project_data):
         total_panels = st.number_input("出力枚数", min_value=1, max_value=20, value=proj.get("total_panels", 5))
 
     output_mode_opts = options.get("output_mode", [
-        ["per_koma", "各コマを個別画像"],
-        ["per_page", "1枚目を1画像に"],
+        ["per_koma", "最大4コマまで1画像"],
+        ["per_page", "各「枚」を4コマ単位で分割"],
     ])
     output_mode_idx = {o[0]: i for i, o in enumerate(output_mode_opts)}
     with col4:
@@ -588,7 +590,7 @@ def render_manga_tab(options, characters, project_data):
             range(len(om_labels)),
             format_func=lambda i: om_labels[i],
             index=output_mode_idx.get(proj.get("output_mode", "per_koma"), 0),
-            help="「1枚目を1画像に」: 複数コマを1枚の漫画ページとしてプロンプト生成",
+            help="最大4コマ/画像：ストーリー順にチャンク。各「枚」分割：枚の中のコマを4コマごとにプロンプト分割。",
         )
         output_mode_key = output_mode_opts[om_sel][0]
 

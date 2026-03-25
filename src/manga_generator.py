@@ -14,6 +14,9 @@ import yaml
 
 load_dotenv()
 
+# 1回の画像生成に載せるコマの上限（ユーザー方針: 最大4コマ／1画像）
+KOMA_PER_IMAGE_MAX = 4
+
 
 def load_config(config_dir: Path) -> tuple[dict, dict, dict]:
     """config/ から characters, project を読み込む"""
@@ -99,6 +102,17 @@ def _get_forbidden_lettering_block() -> str:
         "Below: technical descriptions for YOU only — interpret visually, do NOT letter them onto the page.\n"
         "描いてよい文字: 吹き出し・思考のふきだしのセリフ、画面内の看板・スクリーンの文言（物語の一部として自然なもの）、"
         "擬音（ザワザワ、ドキッ 等の漫画表現としての文字）。それ以外の説明文は絵に書かない。"
+    )
+
+
+def _get_bounded_multi_panel_block(num_panels: int) -> str:
+    """1画像あたり最大 KOMA_PER_IMAGE_MAX コマであることを明示（1〜4コマ）"""
+    n = min(KOMA_PER_IMAGE_MAX, max(1, num_panels))
+    return (
+        f"PANEL BUDGET: ONE image with exactly {n} manga panel(s). "
+        f"Never more than {KOMA_PER_IMAGE_MAX} bordered panels in this output. "
+        "Do not add empty filler panels or extra cells beyond the descriptions below. "
+        f"日本語: この1枚に描くコマは{n}コマ（同一画像・上限{KOMA_PER_IMAGE_MAX}コマ）。余計なコマを増やさない。"
     )
 
 
@@ -232,6 +246,9 @@ def build_page_prompt(
 
     koma_list = _get_koma_list(panel)
     num_panels = len(koma_list)
+    if num_panels > KOMA_PER_IMAGE_MAX:
+        koma_list = koma_list[:KOMA_PER_IMAGE_MAX]
+        num_panels = KOMA_PER_IMAGE_MAX
     proj = (project_config or {}).get("project", {})
     design_structure = proj.get("design_structure", "auto")
 
@@ -355,7 +372,8 @@ def build_page_prompt(
     pacing = (project_config.get("project") or {}).get("story_pacing_hint", "").strip() if project_config else ""
     parts = [
         _get_forbidden_lettering_block(),
-        "CRITICAL: Produce ONE single image containing multiple manga panels. Do NOT generate separate images.",
+        _get_bounded_multi_panel_block(num_panels),
+        "CRITICAL: Produce exactly ONE image file. All described manga panels must appear in that single image—never split into separate image files.",
         "Draw a SINGLE manga page where ALL panels share the same canvas/frame.",
         "MOST IMPORTANT: Character consistency across ALL panels on this page.",
         pacing,
@@ -393,6 +411,49 @@ def _get_koma_list(panel: dict) -> list[dict]:
         if "dialogue" not in k:
             k["dialogue"] = []
     return koma
+
+
+def _merge_ordered_char_ids(parent_panels: list[dict]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in parent_panels:
+        for cid in p.get("characters") or []:
+            if cid not in seen:
+                seen.add(cid)
+                out.append(cid)
+    return out
+
+
+def _build_koma_chunks_global(
+    panels: list[dict],
+    max_koma: int = KOMA_PER_IMAGE_MAX,
+) -> list[tuple[str, dict]]:
+    """
+    全「枚」をまたいでコマを時系列順に並べ、max_koma 件ごとに1画像用の仮想パネルを返す。
+    （旧 per_koma 相当：プロンプト本数は ceil(総コマ数 / max_koma)）
+    """
+    ordered: list[tuple[dict, dict]] = []
+    for p in sorted(panels, key=lambda x: x.get("number", 0)):
+        for k in _get_koma_list(p):
+            ordered.append((p, k))
+
+    out: list[tuple[str, dict]] = []
+    for start in range(0, len(ordered), max_koma):
+        chunk = ordered[start : start + max_koma]
+        komas = [t[1] for t in chunk]
+        parents = [t[0] for t in chunk]
+        syn = {
+            "number": parents[0].get("number", 1),
+            "title": "",
+            "text": parents[0].get("text", ""),
+            "characters": _merge_ordered_char_ids(parents),
+            "koma": komas,
+        }
+        i1 = start + 1
+        i2 = start + len(chunk)
+        label = f"コマ{i1}〜{i2}（1画像・{len(chunk)}コマ）"
+        out.append((label, syn))
+    return out
 
 
 def build_panel_prompt_with_koma(
@@ -502,32 +563,42 @@ def get_all_prompts_from_data(
     panels = project_config.get("panels", [])
     all_chars = chars_config.get("characters", [])
     proj = project_config.get("project", {})
-    mode = output_mode if output_mode is not None else proj.get("output_mode", "per_page")
+    mode = output_mode if output_mode is not None else proj.get("output_mode", "per_koma")
 
     if mode == "per_page":
         result = []
-        for p in panels:
+        for p in sorted(panels, key=lambda x: x.get("number", 0)):
+            klist = _get_koma_list(p)
+            if not klist:
+                continue
             char_ids = p.get("characters", [])
             chars_in = get_characters_for_panel(char_ids, all_chars)
-            prompt = build_page_prompt(p, chars_config, chars_in, project_config)
-            label = f"{p.get('number', 0)}枚目（全コマ1枚）"
-            result.append((label, prompt))
+            for start in range(0, len(klist), KOMA_PER_IMAGE_MAX):
+                chunk = klist[start : start + KOMA_PER_IMAGE_MAX]
+                syn = {**p, "koma": chunk}
+                label = (
+                    f"{p.get('number', 0)}枚目 コマ{start + 1}〜{start + len(chunk)} "
+                    f"（1画像・最大{KOMA_PER_IMAGE_MAX}コマ）"
+                )
+                prompt = build_page_prompt(syn, chars_config, chars_in, project_config)
+                result.append((label, prompt))
         return result
 
+    # per_koma: 連続コマを最大4コマずつ1画像にまとめる（1コマ1画像ではない）
     result = []
-    for label, merged, _ in _flatten_panels(panels):
-        char_ids = merged.get("characters", [])
+    for label, syn in _build_koma_chunks_global(panels, KOMA_PER_IMAGE_MAX):
+        char_ids = syn.get("characters", [])
         chars_in = get_characters_for_panel(char_ids, all_chars)
-        prompt = build_panel_prompt(merged, chars_config, chars_in, project_config)
+        prompt = build_page_prompt(syn, chars_config, chars_in, project_config)
         result.append((label, prompt))
     return result
 
 
-def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> list[tuple[str, str]]:
+def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_koma") -> list[tuple[str, str]]:
     """
     プロンプトを取得。
-    - per_koma: 各コマごとに1プロンプト（コマ数分）
-    - per_page: 1枚目ごとに1プロンプト（複数コマを1枚の画像用にまとめる）
+    - per_koma: 連続コマを最大4コマまで1画像にまとめたプロンプト（長いときは複数プロンプト）
+    - per_page: project の各「枚」内のコマを、最大4コマ単位で1画像プロンプトに分割
     """
     chars_config, project_config = load_config(config_dir)
     proj = project_config.get("project", {})

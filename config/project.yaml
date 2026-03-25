@@ -1,6 +1,7 @@
 project:
   title: サンプル漫画
   total_panels: 1
+  output_mode: per_koma
   aspect_ratio: '9:16'
   canvas_ratio: '9:16'
   genre: tech
