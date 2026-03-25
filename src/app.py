@@ -372,8 +372,25 @@ def render_auto_tab(options, project_data, characters):
     st.caption(
         "テーマと画風などを選んでボタンを押すと、**Gemini の画像生成にそのまま貼るプロンプト**が出ます。"
         "区切り（【…】）ごとにコピーして、1回の生成に1ブロックずつ使ってください。"
-        "（`characters.yaml` にキャラがあれば、その見た目を一貫させる指示に使います）"
+        "登録キャラがいる場合は、下で**登場人物を選べます**（未選択＝全員・最大5人）。"
     )
+
+    selected_cast_ids: list[str] | None = None
+    if characters:
+        cast_labels = [f"{c.get('name', c['id'])} ({c['id']})" for c in characters]
+        label_to_id = {f"{c.get('name', c['id'])} ({c['id']})": c["id"] for c in characters}
+        default_labels = cast_labels[:5]
+        picked = st.multiselect(
+            "登場キャラクター（最大5人・Nano Banana 準拠）",
+            options=cast_labels,
+            default=default_labels,
+            help="選んだキャラだけプロンプトに含まれ、見た目の一貫用に使われます。全員使うならそのまま（先頭5人まで）。",
+            key="auto_cast_chars",
+        )
+        if picked:
+            selected_cast_ids = [label_to_id[lb] for lb in picked][:5]
+        else:
+            selected_cast_ids = []
 
     theme = st.text_area(
         "漫画のテーマ・あらすじ",
@@ -474,6 +491,7 @@ def render_auto_tab(options, project_data, characters):
                     canvas_ratio="9:16",
                     output_mode=output_mode_key,
                     four_panel=four_panel,
+                    selected_character_ids=selected_cast_ids,
                 )
                 st.session_state["theme_image_prompts_text"] = _combine_labelled_prompts(pairs)
                 st.session_state.pop("theme_image_prompt_error", None)

@@ -549,17 +549,33 @@ def build_theme_image_prompts(
     canvas_ratio: str = "9:16",
     output_mode: str = "per_koma",
     four_panel: bool = False,
+    selected_character_ids: list[str] | None = None,
 ) -> list[tuple[str, str]]:
     """
     テーマと選択項目だけから、Gemini 画像生成にそのまま貼るプロンプトを組み立てる。
     JSON や中間ファイルは不要。既存の characters.yaml があれば一貫性のため利用する。
+
+    selected_character_ids: 登場させるキャラの id を順に最大5人。None または空リストのときは
+      YAML にいるキャラを全員（最大5人）。YAML に1人もいないときだけ仮の主人公を補う。
     """
     theme = (theme or "").strip()
     if not theme:
         raise ValueError("テーマが空です")
 
     chars_config = _load_chars_config(config_dir)
-    characters = list(chars_config.get("characters") or [])
+    all_from_file = list(chars_config.get("characters") or [])
+
+    if all_from_file:
+        if selected_character_ids:
+            by_id = {c["id"]: c for c in all_from_file}
+            characters = [by_id[i] for i in selected_character_ids if i in by_id][:5]
+            if not characters:
+                characters = all_from_file[:5]
+        else:
+            characters = all_from_file[:5]
+    else:
+        characters = []
+
     if not characters:
         characters = [{
             "id": "lead",
