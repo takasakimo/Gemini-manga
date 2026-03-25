@@ -180,6 +180,10 @@ def build_panel_prompt(
     if project_hints:
         style_header = "STYLE REQUIREMENTS (must follow): " + " | ".join(project_hints) + "\n\n"
 
+    pacing = ""
+    if project_config:
+        pacing = (project_config.get("project") or {}).get("story_pacing_hint", "").strip()
+
     manga_techniques = (
         "MANGA TECHNIQUES: Use screentone (halftone dot patterns) for shading. "
         "Add focus lines or speed lines for emphasis when appropriate. "
@@ -188,6 +192,7 @@ def build_panel_prompt(
     parts = [
         _get_forbidden_lettering_block(),
         "MOST IMPORTANT: Character consistency across the entire manga panel.",
+        pacing,
         style_header.strip() if style_header else "",
         f"In-world title or heading (only if clearly a sign/poster in the scene): {title}" if title else "",
         "CHARACTER DESCRIPTIONS (for appearance only; do not paste this block as visible text):",
@@ -347,11 +352,13 @@ def build_page_prompt(
     )
     manga_production = _get_manga_production_block()
     emotional_storytelling = _get_emotional_storytelling_block()
+    pacing = (project_config.get("project") or {}).get("story_pacing_hint", "").strip() if project_config else ""
     parts = [
         _get_forbidden_lettering_block(),
         "CRITICAL: Produce ONE single image containing multiple manga panels. Do NOT generate separate images.",
         "Draw a SINGLE manga page where ALL panels share the same canvas/frame.",
         "MOST IMPORTANT: Character consistency across ALL panels on this page.",
+        pacing,
         manga_production,
         emotional_storytelling,
         style_header.strip() if style_header else "",
@@ -528,6 +535,42 @@ def get_all_prompts_flat(config_dir: Path, output_mode: str = "per_page") -> lis
     return get_all_prompts_from_data(chars_config, project_config, mode)
 
 
+def _effective_theme_panel_count(theme: str, base: int, *, max_panels: int = 10) -> tuple[int, bool]:
+    """
+    テーマの文字数に応じて枚数を増やす。base はユーザー指定の最小枚数（上限 max_panels）。
+    戻り値: (実際の枚数, ユーザー指定より増えたか)
+    """
+    base = max(1, min(max_panels, int(base)))
+    n = len(theme.strip())
+    # おおよそ 55 文字超過分ごとに +1 枚（長い説明ほどコマを分割しやすくする）
+    extra = max(0, (n - 35) // 55)
+    eff = min(max_panels, base + extra)
+    eff = max(base, eff)
+    return eff, eff > base
+
+
+def _build_story_pacing_hint(theme: str, *, panel_expanded: bool, four_panel: bool) -> str:
+    """長文テーマ・枚数拡張時にプロンプトへ織り込む読みやすさ指示（英日混在）"""
+    parts: list[str] = []
+    n = len(theme.strip())
+    if four_panel and n >= 60:
+        parts.append(
+            "FOUR-PANEL READABILITY: Theme text is long—each cell ONE clear idea; short vertical Japanese in bubbles; "
+            "no tiny crowded text. 4コマそれぞれに詰め込みすぎない／セリフは短めの縦書きで。"
+        )
+    elif n >= 80:
+        parts.append(
+            "READABILITY: Story brief is long—THIS image is ONE beat only; keep dialogue concise and legible (vertical tategaki); "
+            "never crowd the whole synopsis into one panel. 1コマ1要点／セリフは読みやすい量だけ。"
+        )
+    if panel_expanded and not four_panel:
+        parts.append(
+            "MULTI-IMAGE PACING: Extra panels were allocated for this long summary—spread beats across images; "
+            "one main moment per generated image so text stays readable."
+        )
+    return " ".join(parts)
+
+
 def _load_chars_config(config_dir: Path) -> dict:
     path = config_dir / "characters.yaml"
     if not path.exists():
@@ -550,13 +593,17 @@ def build_theme_image_prompts(
     output_mode: str = "per_koma",
     four_panel: bool = False,
     selected_character_ids: list[str] | None = None,
-) -> list[tuple[str, str]]:
+    expand_panels_by_text: bool = True,
+) -> tuple[list[tuple[str, str]], dict]:
     """
     テーマと選択項目だけから、Gemini 画像生成にそのまま貼るプロンプトを組み立てる。
     JSON や中間ファイルは不要。既存の characters.yaml があれば一貫性のため利用する。
 
     selected_character_ids: 登場させるキャラの id を順に最大5人。None または空リストのときは
       YAML にいるキャラを全員（最大5人）。YAML に1人もいないときだけ仮の主人公を補う。
+    expand_panels_by_text: True のとき、テーマが長いほど枚数を自動で増やす（最大10枚）。
+
+    戻り値: (プロンプトのリスト, メタ情報 dict)
     """
     theme = (theme or "").strip()
     if not theme:
@@ -606,6 +653,21 @@ def build_theme_image_prompts(
 
     char_ids = [c["id"] for c in characters[:5]]
 
+    user_base_panels = max(1, min(10, int(total_panels)))
+    panel_expanded = False
+    effective_panels = user_base_panels
+    if not four_panel:
+        if expand_panels_by_text:
+            effective_panels, panel_expanded = _effective_theme_panel_count(
+                theme, user_base_panels, max_panels=10
+            )
+        else:
+            effective_panels = user_base_panels
+
+    story_pacing_hint = _build_story_pacing_hint(
+        theme, panel_expanded=panel_expanded, four_panel=four_panel
+    )
+
     if four_panel:
         koma4 = [
             ("起", "Introduce the situation and characters clearly."),
@@ -631,6 +693,7 @@ def build_theme_image_prompts(
             "koma": koma_list,
         }]
         n_pages = 1
+        effective_panels = 1
     else:
         beat_labels = [
             "Opening: establish setting and mood",
@@ -652,7 +715,7 @@ def build_theme_image_prompts(
             "Two-shot or interaction framing",
         ]
         panels = []
-        for i in range(total_panels):
+        for i in range(effective_panels):
             beat = beat_labels[min(i, len(beat_labels) - 1)]
             shot = shots[i % len(shots)]
             panels.append({
@@ -663,7 +726,8 @@ def build_theme_image_prompts(
                 "koma": [{
                     "scene": (
                         f"STORY THEME (must read clearly in the art): {theme}\n"
-                        f"Narrative beat for this image: {beat}. (Same ongoing story; do not draw page numbers.)"
+                        f"Narrative beat for this image: {beat}. "
+                        f"(Sequential story; do not draw page numbers, fractions, or step counters on the art.)"
                     ),
                     "shot": shot,
                     "action": (
@@ -673,7 +737,7 @@ def build_theme_image_prompts(
                     "dialogue": [],
                 }],
             })
-        n_pages = total_panels
+        n_pages = effective_panels
 
     project_config = {
         "project": {
@@ -686,11 +750,20 @@ def build_theme_image_prompts(
             "design_structure": design_structure,
             "art_taste": art_taste,
             "output_mode": output_mode,
+            "story_pacing_hint": story_pacing_hint,
         },
         "panels": panels,
     }
 
-    return get_all_prompts_from_data(chars_config, project_config, output_mode)
+    prompts = get_all_prompts_from_data(chars_config, project_config, output_mode)
+    meta = {
+        "effective_panels": n_pages,
+        "base_panels": user_base_panels,
+        "expanded": bool(panel_expanded and not four_panel),
+        "theme_chars": len(theme),
+        "expand_enabled": bool(expand_panels_by_text and not four_panel),
+    }
+    return prompts, meta
 
 
 def main():

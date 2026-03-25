@@ -462,6 +462,13 @@ def render_auto_tab(options, project_data, characters):
     )
     output_mode_key = output_mode_opts[om_sel][0]
 
+    expand_panels = st.checkbox(
+        "テーマが長いとき枚数を自動で増やす（目安: 約55文字ごとに＋1枚・最大10枚）",
+        value=True,
+        key="auto_expand_panels_by_text",
+        disabled=(usage_key == "four_panel"),
+    )
+
     try:
         from src.manga_generator import build_theme_image_prompts
     except ImportError:
@@ -480,7 +487,7 @@ def render_auto_tab(options, project_data, characters):
             st.error("テーマを入力してください")
         else:
             try:
-                pairs = build_theme_image_prompts(
+                pairs, tmeta = build_theme_image_prompts(
                     theme.strip(),
                     CONFIG_DIR,
                     genre=genre_key,
@@ -492,8 +499,10 @@ def render_auto_tab(options, project_data, characters):
                     output_mode=output_mode_key,
                     four_panel=four_panel,
                     selected_character_ids=selected_cast_ids,
+                    expand_panels_by_text=expand_panels,
                 )
                 st.session_state["theme_image_prompts_text"] = _combine_labelled_prompts(pairs)
+                st.session_state["theme_image_meta"] = tmeta
                 st.session_state.pop("theme_image_prompt_error", None)
             except Exception as e:
                 st.session_state.pop("theme_image_prompts_text", None)
@@ -501,6 +510,15 @@ def render_auto_tab(options, project_data, characters):
 
     if "theme_image_prompt_error" in st.session_state:
         st.error(st.session_state.pop("theme_image_prompt_error"))
+
+    tm = st.session_state.get("theme_image_meta") or {}
+    if tm.get("expanded"):
+        st.success(
+            f"テーマが約 {tm.get('theme_chars', 0)} 文字のため、指定 {tm.get('base_panels', '?')} 枚 → "
+            f"**{tm.get('effective_panels', '?')} 枚**のプロンプトにしています。"
+        )
+    elif tm and tm.get("expand_enabled") and len((theme or "").strip()) >= 80:
+        st.caption("長めのテーマです。「読みやすさ」の指示をプロンプトに含めています。")
 
     if st.session_state.get("theme_image_prompts_text"):
         st.divider()
@@ -516,6 +534,7 @@ def render_auto_tab(options, project_data, characters):
         )
         if st.button("表示を消す", key="theme_prompt_clear"):
             st.session_state.pop("theme_image_prompts_text", None)
+            st.session_state.pop("theme_image_meta", None)
             st.rerun()
 
     st.caption("※ JSON や別AIの返答は不要です。細かいセリフまで決めたい場合は「漫画生成」タブで編集してからプロンプトをコピーしてください。")
